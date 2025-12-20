@@ -1,0 +1,359 @@
+build a prototype for this:
+
+Comprehensive Technical Specification: Event-Driven Reconciliation Platform (V1.0)
+
+1. Executive Summary and Architectural Principles
+
+This document specifies the technical requirements and architecture for a high-volume, dynamic financial reconciliation platform. The system is built on three core principles:
+
+Event-Driven Decoupling: Use Gcloud PubSub to ensure independent scalability and prevent failure cascades between services.
+
+Central Hub as Source of Truth: All normalized transaction data is stored in PostgreSQL (Central Hub) for ACID compliance during matching.
+
+Dynamic Configuration: Operational logic (mapping, matching rules, workflows) is stored as data (in Firestore) and read at runtime, allowing finance users to manage the system without requiring code deployment.
+
+2. Technology and Infrastructure Stack
+
+Layer
+
+Component/Service
+
+Rationale / Use Case
+
+Backend: Python (FastAPI)
+
+Frontend: Nextjs
+
+Messaging Bus: Google Cloud PubSub
+
+DB: PostgreSQL (with Supabase)
+
+Caching/Lookup: Redis for Fast lookups for volatile data (e.g., active mapping versions, exchange rates).
+
+Raw Data Store: Supabase Storage for Immutable, low-cost archival of all original, raw source files/payloads for audit and compliance.
+
+Frontend Gateway
+
+Backend for Frontend (BFF)
+
+Aggregates data from multiple microservices and optimizes API responses for the UI.
+
+3. Data Management Specification
+
+3.1. Central Hub Schema (PostgreSQL)
+
+The unified, standardized data model that all transactions must map to.
+
+Field Name
+
+Data Type
+
+Required
+
+Description
+
+transaction_uuid
+
+UUID
+
+YES
+
+Primary Key. System-generated unique ID for this record.
+
+source_system
+
+String
+
+YES
+
+Identifier for the source (e.g., 'BANK_ABS', 'POS_INTERNAL').
+
+source_ref_id
+
+String
+
+YES
+
+Original transaction ID from the source system.
+
+transaction_datetime_utc
+
+Timestamp
+
+YES
+
+Transaction initiation time (standardized to UTC).
+
+amount_local
+
+Decimal
+
+YES
+
+Transaction amount in the source currency.
+
+currency_code_iso
+
+String (3-char)
+
+YES
+
+ISO 4217 currency code (e.g., ZAR).
+
+raw_data_uri
+
+String
+
+YES
+
+URI pointer to the original, immutable raw payload in Supabase Storage.
+
+match_id
+
+UUID
+
+NO
+
+Groups all related transactions after matching is successful.
+
+match_status
+
+String
+
+NO
+
+Status: 'UNMATCHED', 'MATCHED_1_1', 'BREAK_TIMING', 'MANUAL_ADJ'.
+
+break_category
+
+String
+
+NO
+
+Classification of the mismatch (e.g., 'SETTLEMENT_GAP').
+
+3.2. Raw Data Store (Supabase Storage)
+
+Principle: Immutable archival for audit and compliance.
+
+Process: The Raw Archiver module saves the original, unmodified file/payload immediately upon ingestion. The raw_data_uri linking back to this location is generated and included in the normalized transaction record.
+
+4. Inter-Service Communication Strategy
+
+4.1. Asynchronous Communication Gcloud PubSub
+
+Used for high-volume, non-blocking data movement (events are JSON/Avro serialized).
+
+Topic Name
+
+Producer (Sender)
+
+Consumer (Receiver)
+
+Purpose
+
+txn-normalized
+
+Ingestion Service
+
+Reconciliation Engine
+
+Core data stream: Triggers matching.
+
+txn-updates
+
+Reconciliation Engine
+
+Workflow Service, Analytics Service
+
+Notifies services of state changes (e.g., UNMATCHED $\rightarrow$ MATCHED).
+
+gl-push-ready
+
+Workflow Service
+
+General Ledger (External)
+
+Signals a batch of closed/resolved data is ready for export.
+
+4.2. Synchronous Communication (HTTP/S REST)
+
+Used for user-driven queries, actions, and configuration lookups. All UI traffic must flow through the BFF.
+
+Caller
+
+Callee
+
+Purpose
+
+Protocol
+
+UI (Frontend)
+
+BFF
+
+All interaction.
+
+REST over HTTPS
+
+BFF
+
+Ingestion Service
+
+Fetching mapping configuration for UI display/editing.
+
+Internal REST
+
+BFF
+
+Workflow Service
+
+Triggering manual actions (Manual Match, Assignment).
+
+Internal REST
+
+5. Microservices and Module Specification
+
+5.A. Backend for Frontend (BFF) Service
+
+Responsibility: Data aggregation, UI optimization, and single entry point for the frontend.
+
+Key Endpoints: /dashboard/summary (Aggregates KPIs from Analytics + Central Hub), /breaks/search (Filters/sorts break data from Central Hub + Workflow Service), /config/mapping/{sourceId}.
+
+Security: Handles session management and delegates requests to internal microservices.
+
+5.B. Ingestion & Normalization Service
+
+Responsibility: Data collection, archival, and transformation based on dynamic configuration.
+
+Module
+
+Purpose
+
+Dynamic Mechanism
+
+Data Collector
+
+Polls/receives raw data (SFTP, API).
+
+Reads configuration from the Data Schema Catalog.
+
+Raw Archiver
+
+Stores raw data in Supabase, generates raw_data_uri.
+
+N/A (Fixed archival process).
+
+Normalizer Core
+
+Maps source fields to the Central Hub Schema.
+
+Reads live field mapping and transformation rules from Firestore.
+
+Event Dispatcher
+
+Pushes normalized record to the txn-normalized PubSub topic.
+
+N/A.
+
+5.C. Reconciliation Engine
+
+Responsibility: High-volume event consumption and rules-based matching.
+
+Module
+
+Purpose
+
+Dynamic Mechanism
+
+Event Listener
+
+Consumes events from txn-normalized.
+
+N/A.
+
+Rule Set Loader
+
+Fetches matching rules (1:1, N:1, Fuzzy) for prioritization.
+
+Reads live, prioritized rules from the Rule Editor configuration (Firestore).
+
+Matching Logic
+
+Executes rules against Central Hub data.
+
+Applies dynamically loaded rules.
+
+Updater & Notifier
+
+Writes match_id and match_status to PostgreSQL and publishes to txn-updates.
+
+N/A.
+
+5.D. Exception Management & Workflow Service
+
+Responsibility: Managing the lifecycle and resolution of unmatched transactions (Breaks).
+
+Module
+
+Purpose
+
+Dynamic Mechanism
+
+Break Listener
+
+Tracks new UNMATCHED records from txn-updates.
+
+N/A.
+
+Assignment Manager
+
+Assigns breaks to analysts based on category/value/age.
+
+Reads live workflow routing rules from Firestore.
+
+Resolution Handler
+
+Processes actions (Manual Match, Write-Off) and logs actions.
+
+Logs all user actions to Firestore Audit Trail.
+
+General Ledger Push
+
+Pushes reconciled data to the accounting system.
+
+Publishes to gl-push-ready.
+
+6. Frontend Components
+
+Component
+
+Description
+
+BFF Endpoint Used
+
+Dynamic Mechanism
+
+Data Source Configuration UI
+
+Tool for Data Ops to manage the Field Mapping.
+
+GET /config/mapping/{sourceId}
+
+User edits update the Firestore-based Data Schema Catalog.
+
+Rule Editor
+
+Tool for Finance to create, test, and deploy matching logic.
+
+N/A (Directly interacts with Rule Configuration service).
+
+User deploys instantly change the rules read by the Reconciliation Engine.
+
+Exception Resolution Grid
+
+Analyst workbench for investigating and resolving breaks.
+
+POST /breaks/search, POST /breaks/resolve
+
+Filters and status (owner/state) are managed dynamically in the Firestore Workflow.
