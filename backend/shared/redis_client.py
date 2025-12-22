@@ -8,10 +8,11 @@ import json
 load_dotenv()
 
 redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=int(os.getenv("REDIS_PORT", 6379)),
-    db=0,
-    decode_responses=True
+    host='redis-19865.c284.us-east1-2.gce.cloud.redislabs.com',
+    port=19865,
+    decode_responses=True,
+    username="default",
+    password=os.getenv("REDIS_PASSWORD"),
 )
 
 

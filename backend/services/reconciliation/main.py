@@ -7,7 +7,7 @@ import uuid
 from typing import Dict, Any, List, Optional
 from shared.database import SessionLocal
 from shared.models import Transaction
-from shared.firestore_client import get_matching_rules
+from shared.supabase_db_client import get_matching_rules
 from shared.pubsub_client import subscribe_to_topic, publish_message
 from shared.redis_client import get_cache, set_cache
 import threading
@@ -37,7 +37,7 @@ class EventListener:
 
 
 class RuleSetLoader:
-    """Loads matching rules from Firestore."""
+    """Loads matching rules from database."""
     
     @staticmethod
     def load_rules() -> List[Dict[str, Any]]:

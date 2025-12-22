@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import httpx
 from shared.database import get_db
 from shared.models import Transaction
-from shared.firestore_client import get_mapping_config, log_audit_trail
+from shared.supabase_db_client import get_mapping_config, log_audit_trail
 from shared.redis_client import get_cache, set_cache
 from pydantic import BaseModel
 
@@ -162,7 +162,7 @@ async def save_mapping_config_endpoint(
     user: str = Query(default="system")
 ):
     """Save mapping configuration."""
-    from shared.firestore_client import save_mapping_config
+    from shared.supabase_db_client import save_mapping_config
     save_mapping_config(source_id, config)
     log_audit_trail("MAPPING_UPDATED", user, {"source_id": source_id})
     return {"status": "saved", "source_id": source_id}

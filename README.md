@@ -37,7 +37,7 @@ The platform consists of four main microservices:
 - **Messaging**: Google Cloud PubSub
 - **Caching**: Redis
 - **Storage**: Supabase Storage
-- **Configuration**: Firestore
+- **Configuration**: Supabase PostgreSQL (relational database)
 
 ## Setup
 

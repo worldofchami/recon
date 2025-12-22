@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
 from shared.database import get_db, SessionLocal
 from shared.models import Transaction
-from shared.firestore_client import get_workflow_rules, log_audit_trail
+from shared.supabase_db_client import get_workflow_rules, log_audit_trail
 from shared.pubsub_client import subscribe_to_topic, publish_message
 from shared.redis_client import get_cache, set_cache
 import threading

@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, Any
 from shared.database import get_db, SessionLocal
 from shared.models import Transaction
-from shared.firestore_client import get_mapping_config
+from shared.supabase_db_client import get_mapping_config
 from shared.supabase_client import upload_raw_data
 from shared.pubsub_client import publish_message
 from pydantic import BaseModel
@@ -47,7 +47,8 @@ class RawArchiver:
         import json
         file_path = f"{source_system}/{datetime.utcnow().strftime('%Y/%m/%d')}/{source_ref_id}.json"
         file_content = json.dumps(raw_data).encode("utf-8")
-        uri = upload_raw_data("raw-data", file_path, file_content)
+        # Upload to the Supabase Storage bucket `raw_data`
+        uri = upload_raw_data("raw_data", file_path, file_content)
         return uri
 
 
