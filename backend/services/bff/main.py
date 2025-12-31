@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import httpx
 from shared.database import get_db
 from shared.models import Transaction
-from shared.supabase_db_client import get_mapping_config, log_audit_trail
+from shared.supabase_db_client import get_mapping_config, log_audit_trail, get_all_sources
 from shared.redis_client import get_cache, set_cache
 from pydantic import BaseModel
 
@@ -144,6 +144,13 @@ async def search_breaks(
         page=request.page,
         page_size=request.page_size
     )
+
+
+@app.get("/config/sources")
+async def get_all_sources_endpoint():
+    """Get all available source systems."""
+    sources = get_all_sources()
+    return {"sources": sources}
 
 
 @app.get("/config/mapping/{source_id}")

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryProvider } from './providers'
+import Navbar from './components/Navbar'
 
 export const metadata: Metadata = {
   title: 'Reconciliation Platform',
@@ -17,6 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <ReactQueryProvider>
+          <Navbar />
           {children}
         </ReactQueryProvider>
       </body>

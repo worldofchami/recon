@@ -109,6 +109,27 @@ def get_workflow_rules() -> List[Dict[str, Any]]:
         db.close()
 
 
+def get_all_sources() -> List[str]:
+    """Get all unique source systems from both data_schema_catalog and transactions."""
+    from sqlalchemy import distinct
+    from shared.models import Transaction
+    db = SessionLocal()
+    try:
+        # Get sources from data_schema_catalog
+        catalog_sources = db.query(DataSchemaCatalog.source_id).all()
+        catalog_source_ids = [row[0] for row in catalog_sources]
+        
+        # Get unique sources from transactions
+        transaction_sources = db.query(distinct(Transaction.source_system)).all()
+        transaction_source_ids = [row[0] for row in transaction_sources]
+        
+        # Combine and deduplicate
+        all_sources = list(set(catalog_source_ids + transaction_source_ids))
+        return sorted(all_sources)
+    finally:
+        db.close()
+
+
 def log_audit_trail(action: str, user: str, details: Dict[str, Any]):
     """Log user action to audit trail."""
     db = SessionLocal()

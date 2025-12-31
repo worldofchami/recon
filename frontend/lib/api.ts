@@ -56,6 +56,11 @@ export const apiClient = {
     return response.data
   },
 
+  getAllSources: async (): Promise<string[]> => {
+    const response = await api.get('/config/sources')
+    return response.data.sources
+  },
+
   getMappingConfig: async (sourceId: string): Promise<any> => {
     const response = await api.get(`/config/mapping/${sourceId}`)
     return response.data

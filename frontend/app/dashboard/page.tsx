@@ -16,15 +16,15 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading dashboard...</div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-600">Loading dashboard...</div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-red-600">Error loading dashboard</div>
       </div>
     )
@@ -40,66 +40,69 @@ export default function DashboardPage() {
   }))
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-            </div>
-          </div>
-        </div>
-      </nav>
-
+    <div className="min-h-screen bg-slate-50">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Dashboard Overview</h1>
+          <p className="text-slate-600">Real-time reconciliation metrics and insights</p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Total Transactions</p>
-                <p className="text-2xl font-bold text-gray-900">{data?.total_transactions || 0}</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Total Transactions</p>
+                <p className="text-3xl font-bold text-slate-900">{data?.total_transactions || 0}</p>
               </div>
-              <FileText className="w-8 h-8 text-blue-600" />
+              <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg">
+                <FileText className="w-6 h-6 text-blue-600" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Matched</p>
-                <p className="text-2xl font-bold text-green-600">{data?.matched_count || 0}</p>
-                <p className="text-xs text-gray-500">{matchRate}% match rate</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Matched</p>
+                <p className="text-3xl font-bold text-green-600">{data?.matched_count || 0}</p>
+                <p className="text-xs text-slate-500 mt-1">{matchRate}% match rate</p>
               </div>
-              <CheckCircle className="w-8 h-8 text-green-600" />
+              <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Unmatched</p>
-                <p className="text-2xl font-bold text-red-600">{data?.unmatched_count || 0}</p>
+                <p className="text-sm font-medium text-slate-600 mb-1">Unmatched</p>
+                <p className="text-3xl font-bold text-red-600">{data?.unmatched_count || 0}</p>
               </div>
-              <AlertCircle className="w-8 h-8 text-red-600" />
+              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-lg">
+                <AlertCircle className="w-6 h-6 text-red-600" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Break Categories</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm font-medium text-slate-600 mb-1">Break Categories</p>
+                <p className="text-3xl font-bold text-slate-900">
                   {Object.keys(data?.breaks_by_category || {}).length}
                 </p>
               </div>
-              <TrendingUp className="w-8 h-8 text-purple-600" />
+              <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg">
+                <TrendingUp className="w-6 h-6 text-purple-600" />
+              </div>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Breaks by Category</h2>
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Breaks by Category</h2>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -121,25 +124,25 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
+          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Recent Activity</h2>
             <div className="space-y-3">
               {data?.recent_activity?.slice(0, 5).map((activity: any) => (
-                <div key={activity.transaction_uuid} className="border-b pb-3">
+                <div key={activity.transaction_uuid} className="border-b border-slate-100 pb-3 last:border-0">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-sm font-medium text-gray-900">
+                      <p className="text-sm font-medium text-slate-900">
                         {activity.source_system} - {activity.source_ref_id}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-slate-500 mt-1">
                         {new Date(activity.transaction_datetime_utc).toLocaleString()}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">
+                      <p className="text-sm font-semibold text-slate-900">
                         {activity.amount_local} {activity.currency_code_iso}
                       </p>
-                      <span className={`text-xs px-2 py-1 rounded ${
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                         activity.match_status === 'MATCHED_1_1'
                           ? 'bg-green-100 text-green-800'
                           : 'bg-red-100 text-red-800'
