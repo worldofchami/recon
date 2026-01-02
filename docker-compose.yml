@@ -27,6 +27,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/recon_dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -44,6 +45,7 @@ services:
     ports:
       - "8001:8001"
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/recon_dev
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-recon-dev}
       - GCP_CLIENT_EMAIL=${GCP_CLIENT_EMAIL:-}
@@ -64,6 +66,7 @@ services:
     ports:
       - "8002:8002"
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/recon_dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -87,6 +90,7 @@ services:
     ports:
       - "8003:8003"
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/recon_dev
       - REDIS_HOST=redis
       - REDIS_PORT=6379
