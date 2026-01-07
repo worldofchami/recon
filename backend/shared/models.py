@@ -7,19 +7,35 @@ from shared.database import Base
 
 
 class Transaction(Base):
-    """Central Hub transaction model."""
+    """Multi-party transaction model for Direla."""
     __tablename__ = "transactions"
 
     transaction_uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    direla_id = Column(String(100), nullable=True, index=True)  # Universal transaction ID
     source_system = Column(String(100), nullable=False, index=True)
     source_ref_id = Column(String(255), nullable=False, index=True)
     transaction_datetime_utc = Column(DateTime(timezone=True), nullable=False, index=True)
     amount_local = Column(Numeric(18, 2), nullable=False)
     currency_code_iso = Column(String(3), nullable=False)
+    
+    # Multi-party specific fields
+    party_type = Column(String(50), nullable=True)  # MERCHANT, POS_PROVIDER, TELCO, BANK
+    phone_number = Column(String(20), nullable=True)  # For airtime/mobile money
+    product_type = Column(String(50), nullable=True)  # MTN_AIRTIME, VODACOM_DATA, etc
+    commission_amount = Column(Numeric(18, 2), nullable=True)  # What this party earned
+    merchant_payout = Column(Numeric(18, 2), nullable=True)  # What merchant receives
+    
+    # Digital signatures
+    party_signature = Column(String(500), nullable=True)  # Digital signature from this party
+    signature_timestamp = Column(DateTime(timezone=True), nullable=True)
+    
+    # Matching fields
     raw_data_uri = Column(String(500), nullable=False)
     match_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     match_status = Column(String(50), nullable=True, index=True)
+    confidence_score = Column(Numeric(5, 2), nullable=True)  # AI confidence 0-100
     break_category = Column(String(100), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
@@ -31,14 +47,23 @@ class Transaction(Base):
         """Convert to dictionary."""
         return {
             "transaction_uuid": str(self.transaction_uuid),
+            "direla_id": self.direla_id,
             "source_system": self.source_system,
             "source_ref_id": self.source_ref_id,
             "transaction_datetime_utc": self.transaction_datetime_utc.isoformat(),
             "amount_local": float(self.amount_local),
             "currency_code_iso": self.currency_code_iso,
+            "party_type": self.party_type,
+            "phone_number": self.phone_number,
+            "product_type": self.product_type,
+            "commission_amount": float(self.commission_amount) if self.commission_amount else None,
+            "merchant_payout": float(self.merchant_payout) if self.merchant_payout else None,
+            "party_signature": self.party_signature,
+            "signature_timestamp": self.signature_timestamp.isoformat() if self.signature_timestamp else None,
             "raw_data_uri": self.raw_data_uri,
             "match_id": str(self.match_id) if self.match_id else None,
             "match_status": self.match_status,
+            "confidence_score": float(self.confidence_score) if self.confidence_score else None,
             "break_category": self.break_category,
         }
 

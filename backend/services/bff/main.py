@@ -230,6 +230,42 @@ async def create_matching_rule(
     return {"status": "created", "rule_id": rule_id}
 
 
+@app.post("/direla/create-id")
+async def create_direla_id(
+    transaction_data: dict,
+    user: str = Query(default="system")
+):
+    """Create a universal Direla ID for multi-party transaction."""
+    from shared.direla_matching import DirelaMatchingEngine
+    
+    engine = DirelaMatchingEngine()
+    direla_id = engine.generate_direla_id(transaction_data)
+    
+    log_audit_trail("DIRELA_ID_CREATED", user, {
+        "direla_id": direla_id,
+        "source_system": transaction_data.get("source_system"),
+        "amount": transaction_data.get("amount_local")
+    })
+    
+    return {
+        "direla_id": direla_id,
+        "status": "created",
+        "message": "Universal ID ready for all parties"
+    }
+
+
+@app.get("/direla/rules/sa")
+async def get_sa_matching_rules():
+    """Get pre-configured South African matching rules."""
+    from shared.direla_matching import SouthAfricanMatchingRules
+    
+    return {
+        "airtime_rule": SouthAfricanMatchingRules.get_airtime_rule(),
+        "electricity_rule": SouthAfricanMatchingRules.get_electricity_rule(), 
+        "eft_rule": SouthAfricanMatchingRules.get_eft_rule()
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

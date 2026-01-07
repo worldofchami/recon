@@ -10,6 +10,7 @@ from shared.models import Transaction
 from shared.supabase_db_client import get_matching_rules
 from shared.pubsub_client import subscribe_to_topic, publish_message
 from shared.redis_client import get_cache, set_cache
+from shared.direla_matching import DirelaMatchingEngine, SouthAfricanMatchingRules
 from rapidfuzz import fuzz
 from contextlib import asynccontextmanager
 import queue
@@ -93,6 +94,7 @@ class MatchingLogic:
     
     def __init__(self):
         self.rule_loader = RuleSetLoader()
+        self.direla_engine = DirelaMatchingEngine()
     
     def process_transaction(self, transaction_data: Dict[str, Any]):
         """Process a transaction and attempt matching."""
@@ -118,23 +120,34 @@ class MatchingLogic:
                     logger.info(f"Transaction {transaction_uuid} already matched with status {transaction.match_status}")
                     return
                 
-                # Load matching rules
-                rules = self.rule_loader.load_rules()
+                # Check if this is part of a multi-party flow
+                direla_id = transaction.direla_id
+                if direla_id:
+                    # Multi-party Direla matching
+                    match_result = self.process_multi_party_transaction(transaction, db)
+                else:
+                    # Traditional bilateral matching
+                    rules = self.rule_loader.load_rules()
+                    match_result = None
+                    
+                    # Try to match using rules in priority order
+                    for rule in rules:
+                        match_result = self.apply_rule(transaction, rule, db)
+                        if match_result:
+                            break
                 
-                # Try to match using rules in priority order
-                for rule in rules:
-                    match_result = self.apply_rule(transaction, rule, db)
-                    if match_result:
-                        # Update transaction with match
-                        transaction.match_id = match_result["match_id"]
-                        transaction.match_status = match_result["match_status"]
-                        transaction.break_category = match_result.get("break_category")
-                        db.commit()
-                        
-                        # Notify other services
-                        self.notify_update(transaction)
-                        logger.info(f"Transaction {transaction_uuid} matched with status {match_result['match_status']}")
-                        return
+                if match_result:
+                    # Update transaction with match
+                    transaction.match_id = match_result["match_id"]
+                    transaction.match_status = match_result["match_status"]
+                    transaction.confidence_score = match_result.get("confidence", 0.0)
+                    transaction.break_category = match_result.get("break_category")
+                    db.commit()
+                    
+                    # Notify other services
+                    self.notify_update(transaction)
+                    logger.info(f"Transaction {transaction_uuid} matched with status {match_result['match_status']}")
+                    return
                 
                 # No match found
                 transaction.match_status = "UNMATCHED"
@@ -370,6 +383,65 @@ class MatchingLogic:
             }
         
         return None
+    
+    def process_multi_party_transaction(
+        self,
+        transaction: Transaction,
+        db: Session
+    ) -> Optional[Dict[str, Any]]:
+        """Process a Direla multi-party transaction."""
+        direla_id = transaction.direla_id
+        
+        # Get all transactions with this Direla ID
+        related_transactions = db.query(Transaction).filter(
+            Transaction.direla_id == direla_id
+        ).all()
+        
+        # Check if we have minimum parties required (configurable)
+        min_parties_required = 2  # Default minimum
+        
+        # TODO: Get min_parties from rule configuration
+        # For now, basic check
+        if len(related_transactions) < min_parties_required:
+            logger.info(f"Waiting for more parties in Direla ID {direla_id} ({len(related_transactions)}/{min_parties_required})")
+            return None  # Wait for more parties
+        
+        # Convert to dicts for AI engine
+        txn_dicts = [txn.to_dict() for txn in related_transactions]
+        
+        # Calculate AI confidence
+        confidence = self.direla_engine.calculate_confidence(txn_dicts, direla_id)
+        
+        # Determine if safe to auto-match
+        if self.direla_engine.should_auto_settle(confidence):
+            match_id = str(uuid.uuid4())
+            
+            # Update all related transactions
+            for txn in related_transactions:
+                txn.match_id = match_id
+                txn.match_status = "DIRELA_VERIFIED"
+                txn.confidence_score = confidence
+            
+            db.commit()
+            
+            logger.info(f"Direla ID {direla_id} auto-matched with {confidence:.1f}% confidence")
+            return {
+                "match_id": match_id,
+                "match_status": "DIRELA_VERIFIED", 
+                "confidence": confidence,
+                "direla_id": direla_id
+            }
+        else:
+            # Low confidence - flag for manual review
+            for txn in related_transactions:
+                txn.match_status = "DIRELA_REVIEW_REQUIRED"
+                txn.confidence_score = confidence
+                txn.break_category = "LOW_CONFIDENCE_DIRELA"
+            
+            db.commit()
+            
+            logger.warning(f"Direla ID {direla_id} requires manual review - {confidence:.1f}% confidence")
+            return None
     
     def categorize_break(self, transaction: Transaction) -> str:
         """Categorize an unmatched transaction."""
