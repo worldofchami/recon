@@ -19,6 +19,12 @@ services:
     volumes:
       - redis_data:/data
 
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+
   bff:
     build:
       context: ./backend
@@ -76,6 +82,8 @@ services:
       - GCP_PRIVATE_KEY_ID=${GCP_PRIVATE_KEY_ID:-}
       - GCP_CLIENT_ID=${GCP_CLIENT_ID:-}
       - GCP_CLIENT_X509_CERT_URL=${GCP_CLIENT_X509_CERT_URL:-}
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085  # <--- Add this
+      - GOOGLE_CLOUD_PROJECT=direla-recon-local    # <--- Add a dummy project ID
     depends_on:
       - postgres
       - redis

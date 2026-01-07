@@ -205,6 +205,31 @@ async def resolve_break(
     return {"status": "resolved", "transaction_uuid": transaction_uuid}
 
 
+@app.post("/rules")
+async def create_matching_rule(
+    rule: dict,
+    user: str = Query(default="system")
+):
+    """Create a new matching rule."""
+    from shared.supabase_db_client import save_matching_rule
+    import uuid
+    
+    # Generate rule ID if not provided
+    rule_id = rule.get("rule_id", str(uuid.uuid4()))
+    
+    # Save the rule
+    save_matching_rule(rule_id, rule)
+    
+    # Log the action
+    log_audit_trail("RULE_CREATED", user, {
+        "rule_id": rule_id,
+        "rule_name": rule.get("name"),
+        "rule_type": rule.get("type")
+    })
+    
+    return {"status": "created", "rule_id": rule_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
