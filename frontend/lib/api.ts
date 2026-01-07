@@ -19,11 +19,19 @@ export interface DashboardSummary {
 
 export interface Break {
   transaction_uuid: string
+  direla_id?: string
   source_system: string
   source_ref_id: string
   transaction_datetime_utc: string
   amount_local: number
   currency_code_iso: string
+  party_type?: string
+  phone_number?: string
+  product_type?: string
+  commission_amount?: number
+  merchant_payout?: number
+  party_signature?: string
+  confidence_score?: number
   match_status: string
   break_category: string
 }
@@ -74,6 +82,26 @@ export const apiClient = {
     await api.post('/breaks/resolve', null, {
       params: { transaction_uuid: transactionUuid, action },
     })
+  },
+
+  // Direla-specific endpoints
+  createDirelaId: async (transactionData: any): Promise<{ direla_id: string }> => {
+    const response = await api.post('/direla/create-id', transactionData)
+    return response.data
+  },
+
+  getSouthAfricanRules: async (): Promise<any> => {
+    const response = await api.get('/direla/rules/sa')
+    return response.data
+  },
+
+  createRule: async (rule: any): Promise<{ rule_id: string }> => {
+    const response = await api.post('/rules', rule)
+    return response.data
+  },
+
+  reprocessTransaction: async (transactionUuid: string): Promise<void> => {
+    await api.post(`http://localhost:8002/reprocess/${transactionUuid}`)
   },
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { BarChart3, Settings, AlertCircle, FileText, TrendingUp, ArrowRight } from 'lucide-react'
+import { BarChart3, Settings, AlertCircle, FileText, TrendingUp, ArrowRight, Users } from 'lucide-react'
 
 export default function Home() {
   return (
@@ -19,7 +19,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <Link 
             href="/dashboard" 
             className="group bg-white rounded-xl shadow-finance p-8 hover:shadow-finance-lg transition-all duration-300 border border-slate-100 hover:border-blue-200"
@@ -72,6 +72,20 @@ export default function Home() {
             <h3 className="text-lg font-semibold text-slate-900 mb-2">Rule Editor</h3>
             <p className="text-slate-600 text-sm mb-4">Create and deploy matching rules</p>
             <div className="flex items-center text-green-600 text-sm font-medium group-hover:translate-x-1 transition-transform">
+              View <ArrowRight className="w-4 h-4 ml-1" />
+            </div>
+          </Link>
+
+          <Link 
+            href="/direla" 
+            className="group bg-white rounded-xl shadow-finance p-8 hover:shadow-finance-lg transition-all duration-300 border border-slate-100 hover:border-purple-200"
+          >
+            <div className="flex items-center justify-center w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg mb-4 group-hover:scale-110 transition-transform">
+              <Users className="w-7 h-7 text-white" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Direla Multi-Party</h3>
+            <p className="text-slate-600 text-sm mb-4">Real-time multi-party reconciliation</p>
+            <div className="flex items-center text-purple-600 text-sm font-medium group-hover:translate-x-1 transition-transform">
               View <ArrowRight className="w-4 h-4 ml-1" />
             </div>
           </Link>

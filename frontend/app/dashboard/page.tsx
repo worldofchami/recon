@@ -142,13 +142,29 @@ export default function DashboardPage() {
                       <p className="text-sm font-semibold text-slate-900">
                         {activity.amount_local} {activity.currency_code_iso}
                       </p>
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                        activity.match_status === 'MATCHED_1_1'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {activity.match_status || 'UNMATCHED'}
-                      </span>
+                      <div className="flex flex-col items-end space-y-1">
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          activity.match_status === 'DIRELA_VERIFIED'
+                            ? 'bg-blue-100 text-blue-800'
+                            : activity.match_status === 'MATCHED_1_1'
+                            ? 'bg-green-100 text-green-800'
+                            : activity.match_status === 'DIRELA_REVIEW_REQUIRED'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {activity.match_status || 'UNMATCHED'}
+                        </span>
+                        {activity.confidence_score && (
+                          <span className="text-xs text-slate-500">
+                            {activity.confidence_score}% confidence
+                          </span>
+                        )}
+                        {activity.direla_id && (
+                          <span className="text-xs text-blue-600 font-mono">
+                            {activity.direla_id}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
