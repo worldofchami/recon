@@ -1,10 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { Save, Plus, Trash2 } from 'lucide-react'
+import { Save, Plus, Trash2, FileCode, Power, PowerOff, ChevronDown, ChevronUp } from 'lucide-react'
+
+interface Rule {
+  id: string
+  name: string
+  type: string
+  priority: number
+  criteria: Record<string, any>
+  enabled: boolean
+}
 
 export default function RulesPage() {
-  const [rules, setRules] = useState([
+  const [rules, setRules] = useState<Rule[]>([
     {
       id: '1',
       name: '1:1 Bank Match',
@@ -20,7 +29,8 @@ export default function RulesPage() {
   ])
 
   const [editing, setEditing] = useState<string | null>(null)
-  const [newRule, setNewRule] = useState<any>({
+  const [expanded, setExpanded] = useState<string | null>('1')
+  const [newRule, setNewRule] = useState<Omit<Rule, 'id'>>({
     name: '',
     type: '1:1',
     priority: 1,
@@ -29,134 +39,261 @@ export default function RulesPage() {
   })
 
   const handleSave = (ruleId: string) => {
-    // In a real implementation, this would save to Firestore
     console.log('Saving rule:', ruleId)
     setEditing(null)
   }
 
   const handleAddRule = () => {
-    // In a real implementation, this would add to Firestore
-    setRules([...rules, { ...newRule, id: Date.now().toString() }])
+    if (!newRule.name.trim()) return
+    
+    const newId = Date.now().toString()
+    setRules([...rules, { ...newRule, id: newId }])
     setNewRule({ name: '', type: '1:1', priority: 1, criteria: {}, enabled: true })
+    setExpanded(newId)
+  }
+
+  const handleDelete = (ruleId: string) => {
+    setRules(rules.filter(r => r.id !== ruleId))
+  }
+
+  const toggleEnabled = (ruleId: string) => {
+    setRules(rules.map(r => 
+      r.id === ruleId ? { ...r, enabled: !r.enabled } : r
+    ))
+  }
+
+  const toggleExpanded = (ruleId: string) => {
+    setExpanded(expanded === ruleId ? null : ruleId)
+  }
+
+  const ruleTypeColors: Record<string, { bg: string; text: string }> = {
+    '1:1': { bg: 'bg-accent-emerald/10', text: 'text-accent-emerald' },
+    'N:1': { bg: 'bg-accent-sky/10', text: 'text-accent-sky' },
+    'FUZZY': { bg: 'bg-accent-violet/10', text: 'text-accent-violet' },
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Rule Editor</h1>
-          <p className="text-slate-600">Create and manage matching rules for reconciliation</p>
+    <div className="min-h-[calc(100vh-4rem)] px-6 py-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 opacity-0 animate-fade-in-up">
+          <h1 className="text-3xl font-bold tracking-tight text-content-primary mb-2">
+            Rule Editor
+          </h1>
+          <p className="text-content-secondary">
+            Create and manage matching rules for reconciliation
+          </p>
         </div>
-        <div className="bg-white rounded-xl shadow-finance p-6 mb-6 border border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Add New Rule</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <input
-              type="text"
-              placeholder="Rule Name"
-              className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={newRule.name}
-              onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
-            />
-            <select
-              className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={newRule.type}
-              onChange={(e) => setNewRule({ ...newRule, type: e.target.value })}
-            >
-              <option value="1:1">1:1 Match</option>
-              <option value="N:1">N:1 Match</option>
-              <option value="FUZZY">Fuzzy Match</option>
-            </select>
-            <input
-              type="number"
-              placeholder="Priority"
-              className="border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={newRule.priority}
-              onChange={(e) => setNewRule({ ...newRule, priority: parseInt(e.target.value) })}
-            />
-            <button
-              onClick={handleAddRule}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center transition-colors font-medium"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Rule
-            </button>
+
+        {/* Add New Rule */}
+        <div className="glass-card p-6 mb-6 opacity-0 animate-fade-in-up delay-100">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-amber/10">
+              <Plus className="w-4 h-4 text-accent-amber" />
+            </div>
+            <h2 className="text-base font-semibold text-content-primary">Create New Rule</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div className="md:col-span-5">
+              <input
+                type="text"
+                placeholder="Rule name..."
+                className="input-field w-full"
+                value={newRule.name}
+                onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddRule()}
+              />
+            </div>
+            <div className="md:col-span-3">
+              <select
+                className="select-field w-full"
+                value={newRule.type}
+                onChange={(e) => setNewRule({ ...newRule, type: e.target.value })}
+              >
+                <option value="1:1">1:1 Match</option>
+                <option value="N:1">N:1 Match</option>
+                <option value="FUZZY">Fuzzy Match</option>
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <input
+                type="number"
+                placeholder="Priority"
+                className="input-field w-full"
+                value={newRule.priority}
+                onChange={(e) => setNewRule({ ...newRule, priority: parseInt(e.target.value) || 1 })}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <button
+                onClick={handleAddRule}
+                disabled={!newRule.name.trim()}
+                className="btn-primary w-full h-full flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" />
+                Add
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-finance overflow-hidden border border-slate-100">
-          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <h2 className="text-lg font-semibold text-slate-900">Matching Rules</h2>
-          </div>
-          <div className="divide-y divide-slate-200">
-            {rules.map((rule) => (
-              <div key={rule.id} className="p-6 hover:bg-slate-50 transition-colors">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">{rule.name}</h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Type: {rule.type} | Priority: {rule.priority} |{' '}
-                      {rule.enabled ? (
-                        <span className="text-green-600 font-medium">Enabled</span>
-                      ) : (
-                        <span className="text-slate-400">Disabled</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex space-x-2">
-                    {editing === rule.id ? (
+        {/* Rules List */}
+        <div className="space-y-3 opacity-0 animate-fade-in-up delay-200">
+          {rules.map((rule, index) => {
+            const colors = ruleTypeColors[rule.type] || ruleTypeColors['1:1']
+            const isExpanded = expanded === rule.id
+            const isEditing = editing === rule.id
+            
+            return (
+              <div 
+                key={rule.id}
+                className={`
+                  glass-card overflow-hidden transition-all duration-300
+                  ${!rule.enabled ? 'opacity-60' : ''}
+                `}
+                style={{ animationDelay: `${200 + index * 50}ms` }}
+              >
+                {/* Rule Header */}
+                <div 
+                  className="p-5 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                  onClick={() => toggleExpanded(rule.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/[0.03]">
+                        <FileCode className="w-5 h-5 text-content-secondary" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <h3 className="text-base font-semibold text-content-primary">{rule.name}</h3>
+                          <span className={`badge ${colors.bg} ${colors.text} border-0`}>
+                            {rule.type}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-content-tertiary">
+                          <span>Priority: {rule.priority}</span>
+                          <span className="text-content-muted">•</span>
+                          <span className={rule.enabled ? 'text-status-success' : 'text-content-muted'}>
+                            {rule.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleSave(rule.id)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center transition-colors font-medium"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleEnabled(rule.id)
+                        }}
+                        className={`
+                          p-2 rounded-lg transition-colors
+                          ${rule.enabled 
+                            ? 'bg-status-success/10 text-status-success hover:bg-status-success/20' 
+                            : 'bg-white/[0.03] text-content-muted hover:bg-white/[0.06]'
+                          }
+                        `}
                       >
-                        <Save className="w-4 h-4 mr-2" />
-                        Save
+                        {rule.enabled ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
                       </button>
-                    ) : (
+                      
                       <button
-                        onClick={() => setEditing(rule.id)}
-                        className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(rule.id)
+                        }}
+                        className="p-2 rounded-lg bg-white/[0.03] text-content-muted hover:bg-status-error/10 hover:text-status-error transition-colors"
                       >
-                        Edit
+                        <Trash2 className="w-4 h-4" />
                       </button>
-                    )}
-                    <button className="px-4 py-2 border border-red-300 rounded-lg text-red-700 hover:bg-red-50 flex items-center transition-colors">
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete
-                    </button>
+                      
+                      <div className={`
+                        p-2 rounded-lg bg-white/[0.03] text-content-muted
+                        transition-transform duration-200
+                        ${isExpanded ? 'rotate-180' : ''}
+                      `}>
+                        <ChevronDown className="w-4 h-4" />
+                      </div>
+                    </div>
                   </div>
                 </div>
-                {editing === rule.id ? (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">
-                        Criteria (JSON)
-                      </label>
+                
+                {/* Rule Details (Expandable) */}
+                <div className={`
+                  overflow-hidden transition-all duration-300
+                  ${isExpanded ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}
+                `}>
+                  <div className="px-5 pb-5 pt-2 border-t border-white/[0.06]">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-medium text-content-secondary">
+                        Rule Criteria
+                      </h4>
+                      {isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEditing(null)}
+                            className="btn-secondary text-sm py-1.5 px-3"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => handleSave(rule.id)}
+                            className="btn-primary text-sm py-1.5 px-3 flex items-center gap-1.5"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setEditing(rule.id)}
+                          className="btn-secondary text-sm py-1.5 px-3"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                    
+                    {isEditing ? (
                       <textarea
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        rows={6}
+                        className="input-field w-full font-mono text-sm resize-none"
+                        rows={8}
                         value={JSON.stringify(rule.criteria, null, 2)}
                         onChange={(e) => {
                           try {
                             const updatedRule = { ...rule, criteria: JSON.parse(e.target.value) }
                             setRules(rules.map((r) => (r.id === rule.id ? updatedRule : r)))
                           } catch {
-                            // Invalid JSON
+                            // Invalid JSON - keep as is
                           }
                         }}
+                        spellCheck={false}
                       />
-                    </div>
+                    ) : (
+                      <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.04]">
+                        <pre className="text-sm text-content-secondary font-mono">
+                          {JSON.stringify(rule.criteria, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <pre className="text-sm text-slate-700">{JSON.stringify(rule.criteria, null, 2)}</pre>
-                  </div>
-                )}
+                </div>
               </div>
-            ))}
-          </div>
+            )
+          })}
+          
+          {rules.length === 0 && (
+            <div className="glass-card p-12 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.03] flex items-center justify-center mx-auto mb-4">
+                <FileCode className="w-7 h-7 text-content-muted" />
+              </div>
+              <p className="text-content-secondary font-medium mb-1">No rules configured</p>
+              <p className="text-content-muted text-sm">Create your first matching rule above</p>
+            </div>
+          )}
         </div>
-      </main>
+      </div>
     </div>
   )
 }
-

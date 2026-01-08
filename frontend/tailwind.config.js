@@ -7,34 +7,70 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Satoshi', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+      },
       colors: {
-        primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+        surface: {
+          primary: 'rgb(var(--bg-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--bg-secondary) / <alpha-value>)',
+          tertiary: 'rgb(var(--bg-tertiary) / <alpha-value>)',
+          elevated: 'rgb(var(--bg-elevated) / <alpha-value>)',
         },
-        finance: {
-          dark: '#0f172a',
-          slate: '#1e293b',
-          accent: '#3b82f6',
-          success: '#10b981',
-          warning: '#f59e0b',
-          danger: '#ef4444',
+        content: {
+          primary: 'rgb(var(--text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
+          tertiary: 'rgb(var(--text-tertiary) / <alpha-value>)',
+          muted: 'rgb(var(--text-muted) / <alpha-value>)',
+        },
+        accent: {
+          emerald: 'rgb(var(--accent-emerald) / <alpha-value>)',
+          'emerald-dim': 'rgb(var(--accent-emerald-dim) / <alpha-value>)',
+          amber: 'rgb(var(--accent-amber) / <alpha-value>)',
+          rose: 'rgb(var(--accent-rose) / <alpha-value>)',
+          sky: 'rgb(var(--accent-sky) / <alpha-value>)',
+          violet: 'rgb(var(--accent-violet) / <alpha-value>)',
+        },
+        status: {
+          success: 'rgb(var(--success) / <alpha-value>)',
+          warning: 'rgb(var(--warning) / <alpha-value>)',
+          error: 'rgb(var(--error) / <alpha-value>)',
+          info: 'rgb(var(--info) / <alpha-value>)',
         },
       },
+      borderRadius: {
+        '2xl': '1rem',
+        '3xl': '1.25rem',
+        '4xl': '1.5rem',
+      },
       boxShadow: {
-        'finance': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        'finance-lg': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        'glow-sm': '0 0 15px rgba(52, 211, 153, 0.15)',
+        'glow': '0 0 25px rgba(52, 211, 153, 0.2)',
+        'glow-lg': '0 0 40px rgba(52, 211, 153, 0.25)',
+        'card': '0 4px 24px rgba(0, 0, 0, 0.2)',
+        'card-hover': '0 8px 32px rgba(0, 0, 0, 0.3)',
+      },
+      backgroundImage: {
+        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+        'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
+        'mesh-gradient': `
+          radial-gradient(at 40% 20%, rgba(52, 211, 153, 0.08) 0px, transparent 50%),
+          radial-gradient(at 80% 0%, rgba(56, 189, 248, 0.06) 0px, transparent 50%),
+          radial-gradient(at 0% 50%, rgba(167, 139, 250, 0.05) 0px, transparent 50%),
+          radial-gradient(at 80% 50%, rgba(251, 191, 36, 0.04) 0px, transparent 50%),
+          radial-gradient(at 0% 100%, rgba(52, 211, 153, 0.06) 0px, transparent 50%)
+        `,
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.5s ease-out forwards',
+        'fade-in-up': 'fadeInUp 0.5s ease-out forwards',
+        'fade-in-down': 'fadeInDown 0.4s ease-out forwards',
+        'pulse-slow': 'pulse 3s ease-in-out infinite',
+      },
+      transitionTimingFunction: {
+        'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
   },
   plugins: [],
 }
-

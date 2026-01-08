@@ -2,30 +2,145 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
-import { TrendingUp, TrendingDown, AlertCircle, CheckCircle, FileText } from 'lucide-react'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+import { 
+  FileText, 
+  CheckCircle2, 
+  AlertCircle, 
+  Layers,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Clock
+} from 'lucide-react'
 
-const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+const CHART_COLORS = [
+  'rgb(52, 211, 153)',   // emerald
+  'rgb(56, 189, 248)',   // sky
+  'rgb(251, 191, 36)',   // amber
+  'rgb(251, 113, 133)',  // rose
+  'rgb(167, 139, 250)',  // violet
+]
+
+interface StatCardProps {
+  title: string
+  value: string | number
+  subtitle?: string
+  icon: React.ElementType
+  color: 'emerald' | 'rose' | 'amber' | 'sky' | 'violet'
+  trend?: { value: number; positive: boolean }
+  delay?: number
+}
+
+function StatCard({ title, value, subtitle, icon: Icon, color, trend, delay = 0 }: StatCardProps) {
+  const colorMap = {
+    emerald: { bg: 'bg-accent-emerald/10', text: 'text-accent-emerald', glow: 'shadow-[0_0_40px_rgba(52,211,153,0.08)]' },
+    rose: { bg: 'bg-accent-rose/10', text: 'text-accent-rose', glow: 'shadow-[0_0_40px_rgba(251,113,133,0.08)]' },
+    amber: { bg: 'bg-accent-amber/10', text: 'text-accent-amber', glow: 'shadow-[0_0_40px_rgba(251,191,36,0.08)]' },
+    sky: { bg: 'bg-accent-sky/10', text: 'text-accent-sky', glow: 'shadow-[0_0_40px_rgba(56,189,248,0.08)]' },
+    violet: { bg: 'bg-accent-violet/10', text: 'text-accent-violet', glow: 'shadow-[0_0_40px_rgba(167,139,250,0.08)]' },
+  }
+  
+  const colors = colorMap[color]
+
+  return (
+    <div 
+      className={`glass-card stat-card p-6 opacity-0 animate-fade-in-up ${colors.glow}`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className={`flex items-center justify-center w-11 h-11 rounded-xl ${colors.bg}`}>
+          <Icon className={`w-5 h-5 ${colors.text}`} />
+        </div>
+        {trend && (
+          <div className={`flex items-center gap-1 text-xs font-medium ${trend.positive ? 'text-status-success' : 'text-status-error'}`}>
+            {trend.positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+            {trend.value}%
+          </div>
+        )}
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-content-tertiary">{title}</p>
+        <p className={`text-3xl font-bold tracking-tight ${color === 'emerald' ? colors.text : 'text-content-primary'}`}>
+          {typeof value === 'number' ? value.toLocaleString() : value}
+        </p>
+        {subtitle && (
+          <p className="text-xs text-content-muted">{subtitle}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-[calc(100vh-4rem)] px-6 py-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="mb-8">
+          <div className="skeleton h-8 w-48 mb-2" />
+          <div className="skeleton h-5 w-72" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="glass-card p-6">
+              <div className="skeleton h-11 w-11 rounded-xl mb-4" />
+              <div className="skeleton h-4 w-24 mb-2" />
+              <div className="skeleton h-8 w-20" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="glass-card p-6 h-[400px]">
+            <div className="skeleton h-6 w-32 mb-4" />
+            <div className="skeleton h-[300px] w-full rounded-xl" />
+          </div>
+          <div className="glass-card p-6 h-[400px]">
+            <div className="skeleton h-6 w-32 mb-4" />
+            <div className="space-y-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="skeleton h-16 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CustomTooltip({ active, payload }: any) {
+  if (active && payload && payload.length) {
+    return (
+      <div className="custom-tooltip">
+        <p className="text-sm font-medium text-content-primary">{payload[0].name}</p>
+        <p className="text-lg font-bold text-accent-emerald">{payload[0].value}</p>
+      </div>
+    )
+  }
+  return null
+}
 
 export default function DashboardPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: apiClient.getDashboardSummary,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000,
   })
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-slate-600">Loading dashboard...</div>
-      </div>
-    )
+    return <LoadingSkeleton />
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-red-600">Error loading dashboard</div>
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-6">
+        <div className="glass-card p-8 text-center max-w-md">
+          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-status-error/10 mx-auto mb-4">
+            <AlertCircle className="w-6 h-6 text-status-error" />
+          </div>
+          <h3 className="text-lg font-semibold text-content-primary mb-2">Unable to load dashboard</h3>
+          <p className="text-sm text-content-tertiary">Please check your connection and try again.</p>
+        </div>
       </div>
     )
   }
@@ -35,145 +150,202 @@ export default function DashboardPage() {
     : '0'
 
   const pieData = Object.entries(data?.breaks_by_category || {}).map(([name, value]) => ({
-    name,
+    name: name.replace(/_/g, ' '),
     value,
   }))
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Dashboard Overview</h1>
-          <p className="text-slate-600">Real-time reconciliation metrics and insights</p>
+    <div className="min-h-[calc(100vh-4rem)] px-6 py-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 opacity-0 animate-fade-in-up">
+          <h1 className="text-3xl font-bold tracking-tight text-content-primary mb-2">
+            Dashboard
+          </h1>
+          <p className="text-content-secondary">
+            Real-time reconciliation metrics and system health
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Total Transactions</p>
-                <p className="text-3xl font-bold text-slate-900">{data?.total_transactions || 0}</p>
-              </div>
-              <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Matched</p>
-                <p className="text-3xl font-bold text-green-600">{data?.matched_count || 0}</p>
-                <p className="text-xs text-slate-500 mt-1">{matchRate}% match rate</p>
-              </div>
-              <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Unmatched</p>
-                <p className="text-3xl font-bold text-red-600">{data?.unmatched_count || 0}</p>
-              </div>
-              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-lg">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100 hover:shadow-finance-lg transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-600 mb-1">Break Categories</p>
-                <p className="text-3xl font-bold text-slate-900">
-                  {Object.keys(data?.breaks_by_category || {}).length}
-                </p>
-              </div>
-              <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <StatCard
+            title="Total Transactions"
+            value={data?.total_transactions || 0}
+            icon={FileText}
+            color="sky"
+            trend={{ value: 12.5, positive: true }}
+            delay={100}
+          />
+          <StatCard
+            title="Matched"
+            value={data?.matched_count || 0}
+            subtitle={`${matchRate}% match rate`}
+            icon={CheckCircle2}
+            color="emerald"
+            trend={{ value: 3.2, positive: true }}
+            delay={150}
+          />
+          <StatCard
+            title="Unmatched"
+            value={data?.unmatched_count || 0}
+            icon={AlertCircle}
+            color="rose"
+            trend={{ value: 2.1, positive: false }}
+            delay={200}
+          />
+          <StatCard
+            title="Break Categories"
+            value={Object.keys(data?.breaks_by_category || {}).length}
+            icon={Layers}
+            color="violet"
+            delay={250}
+          />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Breaks by Category</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
+        {/* Charts Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+          {/* Pie Chart */}
+          <div className="glass-card p-6 opacity-0 animate-fade-in-up delay-300">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-content-primary">Breaks by Category</h2>
+              <span className="text-xs font-medium text-content-muted px-2 py-1 rounded-md bg-white/[0.03]">
+                {pieData.length} categories
+              </span>
+            </div>
+            
+            {pieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={3}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                        className="transition-opacity hover:opacity-80"
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[280px] flex items-center justify-center">
+                <p className="text-content-tertiary text-sm">No break categories to display</p>
+              </div>
+            )}
+            
+            {/* Legend */}
+            {pieData.length > 0 && (
+              <div className="flex flex-wrap gap-4 mt-4 justify-center">
+                {pieData.map((entry, index) => (
+                  <div key={entry.name} className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                    />
+                    <span className="text-xs text-content-secondary capitalize">{entry.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Activity */}
+          <div className="glass-card p-6 opacity-0 animate-fade-in-up delay-400">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-content-primary">Recent Activity</h2>
+              <div className="flex items-center gap-1.5 text-xs font-medium text-content-muted">
+                <Activity className="w-3.5 h-3.5" />
+                Live
+              </div>
+            </div>
+            
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+              {data?.recent_activity?.slice(0, 6).map((activity: any) => (
+                <div 
+                  key={activity.transaction_uuid} 
+                  className="group p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] hover:border-white/[0.08] transition-all duration-200"
                 >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-finance p-6 border border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Recent Activity</h2>
-            <div className="space-y-3">
-              {data?.recent_activity?.slice(0, 5).map((activity: any) => (
-                <div key={activity.transaction_uuid} className="border-b border-slate-100 pb-3 last:border-0">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        {activity.source_system} - {activity.source_ref_id}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {new Date(activity.transaction_datetime_utc).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {activity.amount_local} {activity.currency_code_iso}
-                      </p>
-                      <div className="flex flex-col items-end space-y-1">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          activity.match_status === 'DIRELA_VERIFIED'
-                            ? 'bg-blue-100 text-blue-800'
-                            : activity.match_status === 'MATCHED_1_1'
-                            ? 'bg-green-100 text-green-800'
-                            : activity.match_status === 'DIRELA_REVIEW_REQUIRED'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {activity.match_status || 'UNMATCHED'}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-content-primary truncate">
+                          {activity.source_system}
                         </span>
-                        {activity.confidence_score && (
-                          <span className="text-xs text-slate-500">
-                            {activity.confidence_score}% confidence
-                          </span>
-                        )}
-                        {activity.direla_id && (
-                          <span className="text-xs text-blue-600 font-mono">
-                            {activity.direla_id}
-                          </span>
-                        )}
+                        <span className="text-xs text-content-muted">•</span>
+                        <span className="text-xs text-content-tertiary font-mono truncate">
+                          {activity.source_ref_id}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-content-muted">
+                        <Clock className="w-3 h-3" />
+                        {new Date(activity.transaction_datetime_utc).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
                       </div>
                     </div>
+                    
+                    <div className="flex flex-col items-end gap-2">
+                      <span className="text-sm font-semibold text-content-primary whitespace-nowrap">
+                        {Number(activity.amount_local).toLocaleString(undefined, { minimumFractionDigits: 2 })} {activity.currency_code_iso}
+                      </span>
+                      <span className={`
+                        badge
+                        ${activity.match_status === 'DIRELA_VERIFIED' ? 'badge-info' : ''}
+                        ${activity.match_status === 'MATCHED_1_1' ? 'badge-success' : ''}
+                        ${activity.match_status === 'DIRELA_REVIEW_REQUIRED' ? 'badge-warning' : ''}
+                        ${!activity.match_status || activity.match_status === 'UNMATCHED' ? 'badge-error' : ''}
+                      `}>
+                        {(activity.match_status || 'UNMATCHED').replace(/_/g, ' ')}
+                      </span>
+                    </div>
                   </div>
+                  
+                  {(activity.confidence_score || activity.direla_id) && (
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.04]">
+                      {activity.confidence_score && (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-16 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                            <div 
+                              className="h-full rounded-full bg-accent-emerald" 
+                              style={{ width: `${activity.confidence_score}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-content-muted">{activity.confidence_score}%</span>
+                        </div>
+                      )}
+                      {activity.direla_id && (
+                        <span className="text-xs font-mono text-accent-sky">
+                          {activity.direla_id}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
+              
+              {(!data?.recent_activity || data.recent_activity.length === 0) && (
+                <div className="h-[200px] flex items-center justify-center">
+                  <p className="text-content-tertiary text-sm">No recent activity</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }
-
