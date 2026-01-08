@@ -6,11 +6,18 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+# Add backend directory to path (where shared module is located)
+backend_dir = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, backend_dir)
 
 from shared.database import Base
-from shared.models import Transaction
+from shared.models import (
+    Transaction,
+    DataSchemaCatalog,
+    MatchingRule,
+    WorkflowRule,
+    AuditTrail,
+)
 
 load_dotenv()
 

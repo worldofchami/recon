@@ -65,22 +65,37 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
     # Total transactions
     total = db.query(func.count(Transaction.transaction_uuid)).scalar()
     
-    # Matched count
+    # Matched count - includes all matched statuses
+    matched_statuses = [
+        "MATCHED_1_1",
+        "MATCHED_N_1", 
+        "MATCHED_FUZZY",
+        "DIRELA_VERIFIED",
+        "MANUAL_ADJ"
+    ]
     matched = db.query(func.count(Transaction.transaction_uuid)).filter(
-        Transaction.match_status == "MATCHED_1_1"
+        Transaction.match_status.in_(matched_statuses)
     ).scalar()
     
-    # Unmatched count
+    # Unmatched count - includes UNMATCHED, DIRELA_REVIEW_REQUIRED, and NULL
     unmatched = db.query(func.count(Transaction.transaction_uuid)).filter(
-        Transaction.match_status == "UNMATCHED"
+        or_(
+            Transaction.match_status == "UNMATCHED",
+            Transaction.match_status == "DIRELA_REVIEW_REQUIRED",
+            Transaction.match_status.is_(None)
+        )
     ).scalar()
     
-    # Breaks by category
+    # Breaks by category - includes UNMATCHED, DIRELA_REVIEW_REQUIRED, and NULL match_status
     breaks_by_category = db.query(
         Transaction.break_category,
         func.count(Transaction.transaction_uuid)
     ).filter(
-        Transaction.match_status == "UNMATCHED"
+        or_(
+            Transaction.match_status == "UNMATCHED",
+            Transaction.match_status == "DIRELA_REVIEW_REQUIRED",
+            Transaction.match_status.is_(None)
+        )
     ).group_by(Transaction.break_category).all()
     
     breaks_dict = {cat or "UNCATEGORIZED": count for cat, count in breaks_by_category}
