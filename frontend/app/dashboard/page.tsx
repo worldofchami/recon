@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { apiClient } from '@/lib/api'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { 
@@ -30,9 +31,10 @@ interface StatCardProps {
   color: 'emerald' | 'rose' | 'amber' | 'sky' | 'violet'
   trend?: { value: number; positive: boolean }
   delay?: number
+  onClick?: () => void
 }
 
-function StatCard({ title, value, subtitle, icon: Icon, color, trend, delay = 0 }: StatCardProps) {
+function StatCard({ title, value, subtitle, icon: Icon, color, trend, delay = 0, onClick }: StatCardProps) {
   const colorMap = {
     emerald: { bg: 'bg-accent-emerald/10', text: 'text-accent-emerald', glow: 'shadow-[0_0_40px_rgba(52,211,153,0.08)]' },
     rose: { bg: 'bg-accent-rose/10', text: 'text-accent-rose', glow: 'shadow-[0_0_40px_rgba(251,113,133,0.08)]' },
@@ -44,8 +46,12 @@ function StatCard({ title, value, subtitle, icon: Icon, color, trend, delay = 0 
   const colors = colorMap[color]
 
   return (
-    <div 
-      className={`glass-card stat-card p-6 opacity-0 animate-fade-in-up ${colors.glow}`}
+    <button 
+      type="button"
+      onClick={onClick}
+      className={`glass-card stat-card p-6 opacity-0 animate-fade-in-up ${colors.glow} ${
+        onClick ? 'hover:-translate-y-0.5 transition-transform focus:outline-none focus:ring-2 focus:ring-accent-emerald/40' : ''
+      }`}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-start justify-between mb-4">
@@ -60,15 +66,15 @@ function StatCard({ title, value, subtitle, icon: Icon, color, trend, delay = 0 
         )}
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-content-tertiary">{title}</p>
+        <p className="text-sm font-medium text-content-secondary">{title}</p>
         <p className={`text-3xl font-bold tracking-tight ${color === 'emerald' ? colors.text : 'text-content-primary'}`}>
           {typeof value === 'number' ? value.toLocaleString() : value}
         </p>
         {subtitle && (
-          <p className="text-xs text-content-muted">{subtitle}</p>
+          <p className="text-xs text-content-secondary">{subtitle}</p>
         )}
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -121,6 +127,7 @@ function CustomTooltip({ active, payload }: any) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const { data, isLoading, error } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: apiClient.getDashboardSummary,
@@ -176,6 +183,7 @@ export default function DashboardPage() {
             color="sky"
             trend={{ value: 12.5, positive: true }}
             delay={100}
+            onClick={() => router.push('/breaks')}
           />
           <StatCard
             title="Matched"
@@ -185,6 +193,7 @@ export default function DashboardPage() {
             color="emerald"
             trend={{ value: 3.2, positive: true }}
             delay={150}
+            onClick={() => router.push('/breaks?match_status=MATCHED')}
           />
           <StatCard
             title="Unmatched"
@@ -193,6 +202,7 @@ export default function DashboardPage() {
             color="rose"
             trend={{ value: 2.1, positive: false }}
             delay={200}
+            onClick={() => router.push('/breaks?match_status=UNMATCHED')}
           />
           <StatCard
             title="Break Categories"
@@ -200,6 +210,7 @@ export default function DashboardPage() {
             icon={Layers}
             color="violet"
             delay={250}
+            onClick={() => router.push('/breaks')}
           />
         </div>
 
@@ -209,7 +220,7 @@ export default function DashboardPage() {
           <div className="glass-card p-6 opacity-0 animate-fade-in-up delay-300">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-content-primary">Breaks by Category</h2>
-              <span className="text-xs font-medium text-content-muted px-2 py-1 rounded-md bg-white/[0.03]">
+              <span className="text-xs font-medium text-content-secondary px-2 py-1 rounded-md bg-white/[0.08] border border-white/[0.1]">
                 {pieData.length} categories
               </span>
             </div>
@@ -274,7 +285,7 @@ export default function DashboardPage() {
               {data?.recent_activity?.slice(0, 6).map((activity: any) => (
                 <div 
                   key={activity.transaction_uuid} 
-                  className="group p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] hover:border-white/[0.08] transition-all duration-200"
+                  className="group p-4 rounded-xl bg-white/[0.06] border border-white/[0.12] hover:bg-white/[0.1] hover:border-white/[0.2] transition-all duration-200"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -315,10 +326,10 @@ export default function DashboardPage() {
                   </div>
                   
                   {(activity.confidence_score || activity.direla_id) && (
-                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.04]">
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.1]">
                       {activity.confidence_score && (
                         <div className="flex items-center gap-1.5">
-                          <div className="w-16 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                          <div className="w-16 h-1.5 rounded-full bg-white/[0.15] overflow-hidden">
                             <div 
                               className="h-full rounded-full bg-accent-emerald" 
                               style={{ width: `${activity.confidence_score}%` }}

@@ -92,7 +92,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto">
           {/* Badge */}
           <div className="flex justify-center mb-8 opacity-0 animate-fade-in-up">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.08] border border-white/[0.15] backdrop-blur-sm">
               <div className="flex items-center justify-center w-5 h-5 rounded-full bg-accent-emerald/20">
                 <Zap className="w-3 h-3 text-accent-emerald" />
               </div>

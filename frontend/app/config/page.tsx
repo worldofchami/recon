@@ -143,7 +143,7 @@ export default function ConfigPage() {
               ) : (
                 <>
                   {/* Header */}
-                  <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/[0.06]">
+                  <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/[0.15]">
                     <div>
                       <h2 className="text-lg font-semibold text-content-primary mb-1">
                         {selectedSource}
@@ -221,7 +221,7 @@ export default function ConfigPage() {
                           <span className="w-1.5 h-1.5 rounded-full bg-accent-emerald" />
                           Field Mapping
                         </h3>
-                        <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.04]">
+                        <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.12]">
                           <pre className="text-sm text-content-secondary font-mono whitespace-pre-wrap break-all">
                             {JSON.stringify(mappingConfig?.field_mapping || {}, null, 2)}
                           </pre>
@@ -234,7 +234,7 @@ export default function ConfigPage() {
                           <span className="w-1.5 h-1.5 rounded-full bg-accent-violet" />
                           Transformations
                         </h3>
-                        <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.04]">
+                        <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.12]">
                           <pre className="text-sm text-content-secondary font-mono whitespace-pre-wrap break-all">
                             {JSON.stringify(mappingConfig?.transformations || {}, null, 2)}
                           </pre>

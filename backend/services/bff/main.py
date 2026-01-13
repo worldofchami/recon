@@ -48,6 +48,11 @@ class BreakSearchResponse(BaseModel):
     page_size: int
 
 
+class BreakContextResponse(BaseModel):
+    transaction: dict
+    match_peers: List[dict]
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -133,7 +138,26 @@ async def search_breaks(
     if request.source_system:
         filters.append(Transaction.source_system == request.source_system)
     if request.match_status:
-        filters.append(Transaction.match_status == request.match_status)
+        # Allow grouped status filters for dashboard shortcuts
+        if request.match_status.upper() == "MATCHED":
+            matched_statuses = [
+                "MATCHED_1_1",
+                "MATCHED_N_1",
+                "MATCHED_FUZZY",
+                "DIRELA_VERIFIED",
+                "MANUAL_ADJ",
+            ]
+            filters.append(Transaction.match_status.in_(matched_statuses))
+        elif request.match_status.upper() == "UNMATCHED":
+            filters.append(
+                or_(
+                    Transaction.match_status == "UNMATCHED",
+                    Transaction.match_status == "DIRELA_REVIEW_REQUIRED",
+                    Transaction.match_status.is_(None),
+                )
+            )
+        else:
+            filters.append(Transaction.match_status == request.match_status)
     if request.break_category:
         filters.append(Transaction.break_category == request.break_category)
     if request.date_from:
@@ -158,6 +182,29 @@ async def search_breaks(
         total=total,
         page=request.page,
         page_size=request.page_size
+    )
+
+
+@app.get("/breaks/{transaction_uuid}/context", response_model=BreakContextResponse)
+async def get_break_context(transaction_uuid: str, db: Session = Depends(get_db)):
+    """Return the selected transaction plus any peers in the same match group."""
+    transaction = db.query(Transaction).filter(
+        Transaction.transaction_uuid == transaction_uuid
+    ).first()
+    
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    match_peers: List[Transaction] = []
+    if transaction.match_id:
+        match_peers = db.query(Transaction).filter(
+            Transaction.match_id == transaction.match_id,
+            Transaction.transaction_uuid != transaction.transaction_uuid
+        ).all()
+    
+    return BreakContextResponse(
+        transaction=transaction.to_dict(),
+        match_peers=[peer.to_dict() for peer in match_peers],
     )
 
 

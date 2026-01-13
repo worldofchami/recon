@@ -35,6 +35,7 @@ class Transaction(Base):
     match_status = Column(String(50), nullable=True, index=True)
     confidence_score = Column(Numeric(5, 2), nullable=True)  # AI confidence 0-100
     break_category = Column(String(100), nullable=True)
+    break_metadata = Column(JSON, nullable=True)  # Detailed break context and comparison data
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -65,6 +66,7 @@ class Transaction(Base):
             "match_status": self.match_status,
             "confidence_score": float(self.confidence_score) if self.confidence_score else None,
             "break_category": self.break_category,
+            "break_metadata": self.break_metadata,
         }
 
 

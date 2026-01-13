@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import datetime, timedelta
 import uuid
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from shared.database import SessionLocal
 from shared.models import Transaction
 from shared.supabase_db_client import get_matching_rules
@@ -120,6 +120,10 @@ class MatchingLogic:
                     logger.info(f"Transaction {transaction_uuid} already matched with status {transaction.match_status}")
                     return
                 
+                # Track why a transaction might fail matching so we can persist a break reason
+                failure_reasons: List[str] = []
+                rules: List[Dict[str, Any]] = []
+                
                 # Check if this is part of a multi-party flow
                 direla_id = transaction.direla_id
                 if direla_id:
@@ -129,10 +133,13 @@ class MatchingLogic:
                     # Traditional bilateral matching
                     rules = self.rule_loader.load_rules()
                     match_result = None
+                    failure_reasons: List[str] = []
                     
                     # Try to match using rules in priority order
                     for rule in rules:
-                        match_result = self.apply_rule(transaction, rule, db)
+                        match_result, failure_reason = self.apply_rule(transaction, rule, db)
+                        if failure_reason:
+                            failure_reasons.append(failure_reason)
                         if match_result:
                             break
                 
@@ -141,7 +148,8 @@ class MatchingLogic:
                     transaction.match_id = match_result["match_id"]
                     transaction.match_status = match_result["match_status"]
                     transaction.confidence_score = match_result.get("confidence", 0.0)
-                    transaction.break_category = match_result.get("break_category")
+                    transaction.break_category = match_result.get("break_category") or transaction.break_category
+                    transaction.break_metadata = match_result.get("metadata", {})
                     db.commit()
                     
                     # Notify other services
@@ -149,9 +157,24 @@ class MatchingLogic:
                     logger.info(f"Transaction {transaction_uuid} matched with status {match_result['match_status']}")
                     return
                 
-                # No match found
+                # No match found - store detailed break information
                 transaction.match_status = "UNMATCHED"
-                transaction.break_category = self.categorize_break(transaction)
+                # Use the most recent failure reason, falling back to generic category
+                transaction.break_category = failure_reasons[-1] if rules and failure_reasons else self.categorize_break(transaction)
+                
+                # Store break metadata with context
+                transaction.break_metadata = {
+                    "failure_reasons": failure_reasons,
+                    "rules_attempted": [{"name": r.get("name"), "type": r.get("type")} for r in rules],
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "transaction_details": {
+                        "amount": float(transaction.amount_local),
+                        "currency": transaction.currency_code_iso,
+                        "source_system": transaction.source_system,
+                        "datetime": transaction.transaction_datetime_utc.isoformat()
+                    }
+                }
+                
                 db.commit()
                 self.notify_update(transaction)
                 logger.info(f"Transaction {transaction_uuid} remains unmatched")
@@ -165,25 +188,39 @@ class MatchingLogic:
         transaction: Transaction,
         rule: Dict[str, Any],
         db: Session
-    ) -> Optional[Dict[str, Any]]:
-        """Apply a matching rule."""
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Apply a matching rule and return match result plus failure reason."""
         rule_type = rule.get("type")
         
         if rule_type == "1:1":
-            return self.match_1_to_1(transaction, rule, db)
+            result, reason = self.match_1_to_1(transaction, rule, db)
+            # Store candidates in transaction break_metadata if no match
+            if not result and hasattr(self, '_last_candidates'):
+                if not transaction.break_metadata:
+                    transaction.break_metadata = {}
+                transaction.break_metadata['candidates'] = self._last_candidates
+                self._last_candidates = None
+            return result, reason
         elif rule_type == "N:1":
             return self.match_n_to_1(transaction, rule, db)
         elif rule_type == "FUZZY":
-            return self.match_fuzzy(transaction, rule, db)
+            result, reason = self.match_fuzzy(transaction, rule, db)
+            # Store candidates in transaction break_metadata if no match
+            if not result and hasattr(self, '_last_candidates'):
+                if not transaction.break_metadata:
+                    transaction.break_metadata = {}
+                transaction.break_metadata['candidates'] = self._last_candidates
+                self._last_candidates = None
+            return result, reason
         
-        return None
+        return None, "UNSUPPORTED_RULE_TYPE"
     
     def match_1_to_1(
         self,
         transaction: Transaction,
         rule: Dict[str, Any],
         db: Session
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """1:1 matching logic."""
         criteria = rule.get("criteria", {})
         target_system = criteria.get("target_system")
@@ -192,7 +229,7 @@ class MatchingLogic:
         
         if not target_system:
             logger.warning("1:1 rule missing target_system")
-            return None
+            return None, "MISSING_TARGET_SYSTEM"
         
         # Find matching transaction in target system
         time_window = timedelta(minutes=time_window_minutes)
@@ -227,17 +264,36 @@ class MatchingLogic:
             
             return {
                 "match_id": match_id,
-                "match_status": "MATCHED_1_1"
-            }
+                "match_status": "MATCHED_1_1",
+                "break_category": rule.get("break_category"),
+                "metadata": {
+                    "matched_with": candidates[0].to_dict(),
+                    "rule_name": rule.get("name"),
+                    "criteria": criteria
+                }
+            }, None
         
-        return None
+        if len(candidates) == 0:
+            return None, "NO_COUNTERPART_FOUND"
+        
+        # Multiple candidates found - store them for comparison
+        self._last_candidates = [{
+            "transaction_uuid": str(c.transaction_uuid),
+            "source_system": c.source_system,
+            "source_ref_id": c.source_ref_id,
+            "amount": float(c.amount_local),
+            "currency": c.currency_code_iso,
+            "datetime": c.transaction_datetime_utc.isoformat(),
+        } for c in candidates[:5]]  # Limit to 5 candidates
+        
+        return None, "MULTIPLE_COUNTERPARTS_FOUND"
     
     def match_n_to_1(
         self,
         transaction: Transaction,
         rule: Dict[str, Any],
         db: Session
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """N:1 matching logic (multiple transactions match to one aggregate)."""
         criteria = rule.get("criteria", {})
         target_system = criteria.get("target_system")
@@ -247,17 +303,17 @@ class MatchingLogic:
 
         if not target_system:
             logger.warning("N:1 rule missing target_system")
-            return None
+            return None, "MISSING_TARGET_SYSTEM"
         
         if not grouping_field:
             logger.warning("N:1 rule missing grouping_field")
-            return None
+            return None, "MISSING_GROUPING_FIELD"
 
         # Get the grouping field value from the incoming transaction
         grouping_value = getattr(transaction, grouping_field, None)
         if not grouping_value:
             logger.debug(f"Transaction missing grouping field {grouping_field}")
-            return None
+            return None, "MISSING_GROUPING_VALUE"
 
         time_window = timedelta(minutes=time_window_minutes)
         time_from = transaction.transaction_datetime_utc - time_window
@@ -283,12 +339,12 @@ class MatchingLogic:
             )
         else:
             logger.warning(f"Transaction model doesn't have field {grouping_field}")
-            return None
+            return None, "INVALID_GROUPING_FIELD"
 
         n_candidates = db.query(Transaction).filter(and_(*filter_conditions)).all()
 
         if not n_candidates:
-            return None
+            return None, "NO_GROUP_MATCHES_FOUND"
 
         # Calculate the sum of candidate 'N' transactions
         sum_n_amounts = sum(float(t.amount_local) for t in n_candidates)
@@ -306,17 +362,18 @@ class MatchingLogic:
 
             return {
                 "match_id": match_id,
-                "match_status": "MATCHED_N_1"
-            }
+                "match_status": "MATCHED_N_1",
+                "break_category": rule.get("break_category")
+            }, None
         
-        return None
+        return None, "AMOUNT_MISMATCH_FOR_GROUP"
     
     def match_fuzzy(
         self,
         transaction: Transaction,
         rule: Dict[str, Any],
         db: Session
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """Fuzzy matching logic based on description similarity."""
         criteria = rule.get("criteria", {})
         target_system = criteria.get("target_system")
@@ -326,11 +383,12 @@ class MatchingLogic:
         
         if not target_system:
             logger.warning("FUZZY rule missing target_system")
-            return None
+            return None, "MISSING_TARGET_SYSTEM"
         
-        if not transaction.description:
+        # Check if transaction has a description field
+        if not hasattr(transaction, 'description') or not transaction.description:
             logger.debug("Transaction missing description for fuzzy matching")
-            return None
+            return None, "MISSING_DESCRIPTION"
         
         time_window = timedelta(minutes=time_window_minutes)
         time_from = transaction.transaction_datetime_utc - time_window
@@ -379,10 +437,31 @@ class MatchingLogic:
             logger.info(f"Fuzzy match found with {best_score}% similarity")
             return {
                 "match_id": match_id,
-                "match_status": "MATCHED_FUZZY"
-            }
+                "match_status": "MATCHED_FUZZY",
+                "break_category": rule.get("break_category"),
+                "metadata": {
+                    "matched_with": best_match.to_dict(),
+                    "similarity_score": best_score,
+                    "rule_name": rule.get("name")
+                }
+            }, None
         
-        return None
+        if not candidates:
+            return None, "NO_FUZZY_CANDIDATES"
+        
+        # Store candidates with their similarity scores for comparison
+        self._last_candidates = [{
+            "transaction_uuid": str(c.transaction_uuid),
+            "source_system": c.source_system,
+            "source_ref_id": c.source_ref_id,
+            "amount": float(c.amount_local),
+            "currency": c.currency_code_iso,
+            "datetime": c.transaction_datetime_utc.isoformat(),
+            "description": getattr(c, 'description', ''),
+            "similarity_score": fuzz.ratio(transaction.description.lower(), getattr(c, 'description', '').lower()) if hasattr(transaction, 'description') else 0
+        } for c in candidates[:5]]  # Limit to 5 candidates
+        
+        return None, "LOW_DESCRIPTION_SIMILARITY"
     
     def process_multi_party_transaction(
         self,

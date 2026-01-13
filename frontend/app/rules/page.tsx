@@ -156,7 +156,7 @@ export default function RulesPage() {
               >
                 {/* Rule Header */}
                 <div 
-                  className="p-5 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                  className="p-5 cursor-pointer hover:bg-white/[0.06] transition-colors"
                   onClick={() => toggleExpanded(rule.id)}
                 >
                   <div className="flex items-center justify-between">
@@ -224,7 +224,7 @@ export default function RulesPage() {
                   overflow-hidden transition-all duration-300
                   ${isExpanded ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}
                 `}>
-                  <div className="px-5 pb-5 pt-2 border-t border-white/[0.06]">
+                  <div className="px-5 pb-5 pt-2 border-t border-white/[0.15]">
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-sm font-medium text-content-secondary">
                         Rule Criteria
@@ -271,7 +271,7 @@ export default function RulesPage() {
                         spellCheck={false}
                       />
                     ) : (
-                      <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.04]">
+                      <div className="bg-surface-secondary/50 rounded-xl p-4 border border-white/[0.12]">
                         <pre className="text-sm text-content-secondary font-mono">
                           {JSON.stringify(rule.criteria, null, 2)}
                         </pre>

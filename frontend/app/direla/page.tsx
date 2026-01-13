@@ -163,7 +163,7 @@ export default function DirelaPage() {
             {saRules && Object.entries(saRules).map(([key, rule]: [string, any], index) => (
               <div 
                 key={key} 
-                className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] hover:border-white/[0.08] transition-all duration-200"
+                className="p-4 rounded-xl bg-white/[0.06] border border-white/[0.12] hover:bg-white/[0.1] hover:border-white/[0.2] transition-all duration-200"
               >
                 <h3 className="font-semibold text-content-primary mb-3">{rule.name}</h3>
                 <div className="space-y-2">
@@ -200,12 +200,12 @@ export default function DirelaPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <div 
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
               onClick={resetForm}
             />
             
             {/* Modal */}
-            <div className="relative w-full max-w-2xl glass-card p-6 animate-fade-in-up shadow-2xl">
+            <div className="relative w-full max-w-2xl glass-card p-6 animate-fade-in-up shadow-2xl border border-white/[0.2]">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -341,7 +341,7 @@ export default function DirelaPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.06]">
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.15]">
                     <button
                       onClick={resetForm}
                       className="btn-secondary"

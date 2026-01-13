@@ -34,6 +34,26 @@ export interface Break {
   confidence_score?: number
   match_status: string
   break_category: string
+  break_metadata?: {
+    failure_reasons?: string[]
+    rules_attempted?: Array<{ name: string; type: string }>
+    candidates?: Array<{
+      transaction_uuid: string
+      source_system: string
+      source_ref_id: string
+      amount: number
+      currency: string
+      datetime: string
+      similarity_score?: number
+    }>
+    timestamp?: string
+    transaction_details?: any
+  }
+}
+
+export interface BreakContext {
+  transaction: Break
+  match_peers: Break[]
 }
 
 export interface BreakSearchRequest {
@@ -102,6 +122,11 @@ export const apiClient = {
 
   reprocessTransaction: async (transactionUuid: string): Promise<void> => {
     await api.post(`http://localhost:8002/reprocess/${transactionUuid}`)
+  },
+
+  getBreakContext: async (transactionUuid: string): Promise<BreakContext> => {
+    const response = await api.get(`/breaks/${transactionUuid}/context`)
+    return response.data
   },
 }
 
