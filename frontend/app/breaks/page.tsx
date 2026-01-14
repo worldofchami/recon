@@ -382,7 +382,7 @@ export default function BreaksPage() {
       {/* Break Details Modal */}
       {selectedBreak && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
           onClick={closeModal}
         >
           <div 
@@ -390,7 +390,7 @@ export default function BreaksPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="sticky top-0 z-10 px-6 py-4 border-b border-white/[0.15] bg-gradient-to-b from-white/[0.12] to-transparent backdrop-blur-sm flex items-center justify-between">
+            <div className="sticky top-0 z-10 px-6 py-4 border-b border-white/[0.2] bg-surface-primary/95 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent-rose/10">
                   <AlertTriangle className="w-5 h-5 text-accent-rose" />
@@ -625,7 +625,7 @@ export default function BreaksPage() {
                               <p className="text-xs font-medium text-content-tertiary mb-2">Attempted Matching:</p>
                               <ul className="space-y-1">
                                 {selectedBreak.break_metadata.failure_reasons.map((reason, idx) => (
-                                  <li key={idx} className="text-xs text-content-muted flex items-center gap-2">
+                                  <li key={idx} className="text-xs text-white flex items-center gap-2">
                                     <span className="w-1.5 h-1.5 rounded-full bg-accent-rose/40"></span>
                                     {reason.replace(/_/g, ' ').toLowerCase()}
                                   </li>
@@ -791,7 +791,7 @@ export default function BreaksPage() {
 
             {/* Modal Footer */}
             {selectedBreak.match_status === 'UNMATCHED' && (
-              <div className="sticky bottom-0 px-6 py-4 border-t border-white/[0.15] bg-gradient-to-t from-white/[0.12] to-transparent backdrop-blur-sm flex items-center justify-end gap-3">
+              <div className="sticky bottom-0 px-6 py-4 border-t border-white/[0.2] bg-surface-primary/95 flex items-center justify-end gap-3">
                 <button
                   onClick={() => {
                     resolveMutation.mutate({ 

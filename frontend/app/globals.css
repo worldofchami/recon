@@ -5,11 +5,11 @@
 @tailwind utilities;
 
 :root {
-  /* Core palette - deep obsidian with emerald accent */
-  --bg-primary: 8 8 12;
-  --bg-secondary: 16 16 22;
-  --bg-tertiary: 24 24 32;
-  --bg-elevated: 32 32 42;
+  /* Core palette - softened obsidian with emerald accent */
+  --bg-primary: 14 16 24;
+  --bg-secondary: 20 22 32;
+  --bg-tertiary: 28 30 42;
+  --bg-elevated: 36 40 54;
   --bg-glass: 255 255 255;
   
   /* Text hierarchy */
