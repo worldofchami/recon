@@ -1,5 +1,5 @@
 """Shared data models for Central Hub schema."""
-from sqlalchemy import Column, String, Numeric, DateTime, ForeignKey, Integer, JSON, Text
+from sqlalchemy import Column, String, Numeric, DateTime, ForeignKey, Integer, JSON, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 import uuid
@@ -67,6 +67,61 @@ class Transaction(Base):
             "confidence_score": float(self.confidence_score) if self.confidence_score else None,
             "break_category": self.break_category,
             "break_metadata": self.break_metadata,
+        }
+
+
+class JournalEntry(Base):
+    """Accounting journal entry header linked to a transaction."""
+    __tablename__ = "journal_entries"
+
+    journal_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    transaction_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("transactions.transaction_uuid", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    def to_dict(self):
+        return {
+            "journal_id": str(self.journal_id),
+            "transaction_uuid": str(self.transaction_uuid),
+            "description": self.description,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class LedgerPosting(Base):
+    """Individual debit/credit postings for a journal entry."""
+    __tablename__ = "ledger_postings"
+
+    posting_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    journal_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("journal_entries.journal_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    account_code = Column(String(100), nullable=False, index=True)
+    # Store debits and credits as separate positive amounts for clarity
+    debit_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    credit_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    currency_code_iso = Column(String(3), nullable=False)
+    is_reconciled = Column(Boolean, nullable=False, server_default="false", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    def to_dict(self):
+        return {
+            "posting_id": str(self.posting_id),
+            "journal_id": str(self.journal_id),
+            "account_code": self.account_code,
+            "debit_amount": float(self.debit_amount),
+            "credit_amount": float(self.credit_amount),
+            "currency_code_iso": self.currency_code_iso,
+            "is_reconciled": bool(self.is_reconciled),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 

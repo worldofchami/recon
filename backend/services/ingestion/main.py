@@ -2,10 +2,11 @@
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 import uuid
 from typing import Dict, Any, Optional
 from shared.database import get_db, SessionLocal
-from shared.models import Transaction
+from shared.models import Transaction, JournalEntry, LedgerPosting
 from shared.supabase_db_client import get_mapping_config, save_mapping_config
 from shared.supabase_client import upload_raw_data
 from shared.pubsub_client import publish_message
@@ -166,6 +167,119 @@ class EventDispatcher:
         publish_message("txn-normalized", normalized_data)
 
 
+class AccountingConfig:
+    """Provides account codes and commission configuration."""
+
+    # Default account codes - can be overridden per source_system via mapping_config["accounts"]
+    DEFAULT_ACCOUNTS = {
+        "merchant_payable": "MERCHANT_PAYABLE",
+        "lesaka_revenue": "LESAKA_REVENUE",
+        "settlement_clearing": "SETTLEMENT_CLEARING",
+    }
+
+    @staticmethod
+    def get_accounts(mapping_config: Dict[str, Any]) -> Dict[str, str]:
+        accounts = mapping_config.get("accounts") or {}
+        merged = {**AccountingConfig.DEFAULT_ACCOUNTS, **accounts}
+        return merged
+
+    @staticmethod
+    def get_commission_rate(mapping_config: Dict[str, Any]) -> Decimal:
+        # Allow override via mapping_config["commission_rate"]; default to 3% (0.03)
+        rate = mapping_config.get("commission_rate")
+        if rate is None:
+            return Decimal("0.03")
+        return Decimal(str(rate))
+
+
+def compute_split(
+    gross_amount: Decimal,
+    commission_rate: Decimal,
+) -> Dict[str, Decimal]:
+    """Compute merchant payout and Lesaka revenue from gross amount.
+
+    Uses bankers rounding to 2 decimals and ensures payout + revenue == gross.
+    """
+    if gross_amount < Decimal("0"):
+        raise ValueError("Gross amount cannot be negative")
+
+    lesaka_revenue = (gross_amount * commission_rate).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    merchant_payout = gross_amount - lesaka_revenue
+
+    # Guard against rounding drift
+    if merchant_payout < Decimal("0"):
+        merchant_payout = Decimal("0.00")
+
+    return {
+        "merchant_payout": merchant_payout,
+        "lesaka_revenue": lesaka_revenue,
+    }
+
+
+def create_journal_with_split(
+    db: Session,
+    transaction: Transaction,
+    mapping_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Create journal and ledger postings for a gross transaction split."""
+    accounts = AccountingConfig.get_accounts(mapping_config)
+    commission_rate = AccountingConfig.get_commission_rate(mapping_config)
+
+    gross = Decimal(str(transaction.amount_local))
+    split = compute_split(gross, commission_rate)
+
+    # Persist split back to transaction
+    transaction.commission_amount = split["lesaka_revenue"]
+    transaction.merchant_payout = split["merchant_payout"]
+
+    journal = JournalEntry(
+        transaction_uuid=transaction.transaction_uuid,
+        description=f"Auto-split gross sale {gross} {transaction.currency_code_iso}",
+    )
+    db.add(journal)
+    db.flush()  # Ensure journal_id is available
+
+    currency = transaction.currency_code_iso
+
+    postings = [
+        # Debit settlement clearing for full gross amount
+        LedgerPosting(
+            journal_id=journal.journal_id,
+            account_code=accounts["settlement_clearing"],
+            debit_amount=gross,
+            credit_amount=Decimal("0.00"),
+            currency_code_iso=currency,
+        ),
+        # Credit merchant payable for payout amount
+        LedgerPosting(
+            journal_id=journal.journal_id,
+            account_code=accounts["merchant_payable"],
+            debit_amount=Decimal("0.00"),
+            credit_amount=split["merchant_payout"],
+            currency_code_iso=currency,
+        ),
+        # Credit Lesaka revenue for commission amount
+        LedgerPosting(
+            journal_id=journal.journal_id,
+            account_code=accounts["lesaka_revenue"],
+            debit_amount=Decimal("0.00"),
+            credit_amount=split["lesaka_revenue"],
+            currency_code_iso=currency,
+        ),
+    ]
+
+    for posting in postings:
+        db.add(posting)
+
+    return {
+        "journal": journal,
+        "postings": postings,
+        "split": split,
+    }
+
+
 @app.post("/ingest")
 async def ingest_transaction(
     request: IngestRequest,
@@ -197,7 +311,7 @@ async def ingest_transaction(
             mapping_config
         )
         
-        # 4. Create transaction record
+        # 4. Create transaction record (gross)
         transaction = Transaction(
             transaction_uuid=uuid.uuid4(),
             source_system=normalized["source_system"],
@@ -205,16 +319,38 @@ async def ingest_transaction(
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
             amount_local=normalized["amount_local"],
             currency_code_iso=normalized["currency_code_iso"],
-            raw_data_uri=raw_data_uri
+            raw_data_uri=raw_data_uri,
         )
-        
+
         db.add(transaction)
+        db.flush()  # Get transaction UUID without committing yet
+
+        # 5. Auto-split gross into merchant payout and Lesaka revenue and create journal
+        journal_context = create_journal_with_split(db, transaction, mapping_config)
+
+        # Persist all DB changes
         db.commit()
         db.refresh(transaction)
-        
-        # 5. Dispatch event
+
+        journal = journal_context["journal"]
+        postings = journal_context["postings"]
+        split = journal_context["split"]
+
+        # 6. Dispatch event with split + postings
         dispatcher = EventDispatcher()
-        dispatcher.dispatch(transaction.to_dict())
+        event_payload = transaction.to_dict()
+        event_payload.update(
+            {
+                "journal_id": str(journal.journal_id),
+                "split": {
+                    "gross_amount": float(transaction.amount_local),
+                    "merchant_payout": float(split["merchant_payout"]),
+                    "lesaka_revenue": float(split["lesaka_revenue"]),
+                },
+                "postings": [p.to_dict() for p in postings],
+            }
+        )
+        dispatcher.dispatch(event_payload)
         
         return {
             "status": "ingested",
@@ -287,7 +423,7 @@ async def ingest_iso20022(
         if not normalized.get("currency_code_iso"):
             raise HTTPException(status_code=400, detail="Missing amount.currency")
         
-        # 4. Create transaction record
+        # 4. Create transaction record (gross)
         transaction = Transaction(
             transaction_uuid=uuid.uuid4(),
             source_system=normalized["source_system"],
@@ -295,16 +431,37 @@ async def ingest_iso20022(
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
             amount_local=normalized["amount_local"],
             currency_code_iso=normalized["currency_code_iso"],
-            raw_data_uri=raw_data_uri
+            raw_data_uri=raw_data_uri,
         )
-        
+
         db.add(transaction)
+        db.flush()
+
+        # 5. Auto-split and create journal
+        journal_context = create_journal_with_split(db, transaction, mapping_config)
+
         db.commit()
         db.refresh(transaction)
-        
-        # 5. Dispatch event
+
+        journal = journal_context["journal"]
+        postings = journal_context["postings"]
+        split = journal_context["split"]
+
+        # 6. Dispatch event with split + postings
         dispatcher = EventDispatcher()
-        dispatcher.dispatch(transaction.to_dict())
+        event_payload = transaction.to_dict()
+        event_payload.update(
+            {
+                "journal_id": str(journal.journal_id),
+                "split": {
+                    "gross_amount": float(transaction.amount_local),
+                    "merchant_payout": float(split["merchant_payout"]),
+                    "lesaka_revenue": float(split["lesaka_revenue"]),
+                },
+                "postings": [p.to_dict() for p in postings],
+            }
+        )
+        dispatcher.dispatch(event_payload)
         
         return {
             "status": "ingested",
