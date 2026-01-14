@@ -43,9 +43,9 @@ const features = [
     color: 'amber',
   },
   {
-    name: 'Direla',
-    description: 'Multi-party reconciliation workflows',
-    href: '/direla',
+    name: 'Operator Console',
+    description: 'Direla ops: universal IDs, insights, and triage',
+    href: '/console',
     icon: Users2,
     color: 'sky',
   },

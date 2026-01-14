@@ -1,6 +1,7 @@
 """Supabase client for storage operations."""
 from supabase import create_client, Client
 import os
+from urllib.parse import urljoin
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -21,10 +22,12 @@ def upload_raw_data(bucket: str, file_path: str, file_content: bytes) -> str:
         return f"file://local/{file_path}"
     
     try:
-        response = supabase.storage.from_(bucket).upload(
+        supabase.storage.from_(bucket).upload(
             file_path, file_content, file_options={"content-type": "application/octet-stream"}
         )
-        return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{file_path}"
+        # Ensure trailing slash on base URL when building public object URL
+        base = SUPABASE_URL if SUPABASE_URL.endswith("/") else f"{SUPABASE_URL}/"
+        return urljoin(base, f"storage/v1/object/public/{bucket}/{file_path}")
     except Exception as e:
         print(f"Error uploading to Supabase: {e}")
         return f"file://local/{file_path}"

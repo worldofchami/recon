@@ -226,6 +226,7 @@ class MatchingLogic:
         target_system = criteria.get("target_system")
         time_window_minutes = criteria.get("time_window_minutes", 60)
         amount_tolerance = criteria.get("amount_tolerance", 0.01)
+        amount_field = criteria.get("amount_field", "amount_local")
         
         if not target_system:
             logger.warning("1:1 rule missing target_system")
@@ -236,6 +237,11 @@ class MatchingLogic:
         time_from = transaction.transaction_datetime_utc - time_window
         time_to = transaction.transaction_datetime_utc + time_window
         
+        # Choose which amount to use from the source transaction (e.g., gross vs merchant payout),
+        # but always compare candidates on their amount_local field. This lets us use net payout
+        # (merchant_payout) on the Kazang side while matching to bank statement amount_local.
+        source_amount_value = getattr(transaction, amount_field, None) or transaction.amount_local
+
         candidates = db.query(Transaction).filter(
             and_(
                 Transaction.source_system == target_system,
@@ -246,8 +252,8 @@ class MatchingLogic:
                     Transaction.match_status.is_(None)
                 ),
                 Transaction.amount_local.between(
-                    float(transaction.amount_local) - amount_tolerance,
-                    float(transaction.amount_local) + amount_tolerance
+                    float(source_amount_value) - amount_tolerance,
+                    float(source_amount_value) + amount_tolerance
                 ),
                 Transaction.transaction_uuid != transaction.transaction_uuid  # Don't match to self
             )

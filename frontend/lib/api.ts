@@ -1,9 +1,17 @@
 import axios from 'axios'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const INGEST_URL = process.env.NEXT_PUBLIC_INGEST_URL || 'http://localhost:8001'
 
 const api = axios.create({
   baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+const ingestApi = axios.create({
+  baseURL: INGEST_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -34,6 +42,7 @@ export interface Break {
   confidence_score?: number
   match_status: string
   break_category: string
+  raw_data_uri?: string
   break_metadata?: {
     failure_reasons?: string[]
     rules_attempted?: Array<{ name: string; type: string }>
@@ -71,6 +80,22 @@ export interface BreakSearchResponse {
   total: number
   page: number
   page_size: number
+}
+
+export interface RawTransaction {
+  transaction_uuid: string
+  raw_uri: string
+  content_type?: string
+  raw_text: string
+}
+
+export interface IngestRequest {
+  source_system: string
+  source_ref_id: string
+  transaction_datetime: string
+  amount: number
+  currency: string
+  raw_data: Record<string, any>
 }
 
 export const apiClient = {
@@ -115,6 +140,16 @@ export const apiClient = {
     return response.data
   },
 
+  getDirelaIds: async (): Promise<any[]> => {
+    const response = await api.get('/direla/ids')
+    return response.data
+  },
+
+  getConsoleInsights: async (): Promise<any> => {
+    const response = await api.get('/console/insights')
+    return response.data
+  },
+
   createRule: async (rule: any): Promise<{ rule_id: string }> => {
     const response = await api.post('/rules', rule)
     return response.data
@@ -126,6 +161,21 @@ export const apiClient = {
 
   getBreakContext: async (transactionUuid: string): Promise<BreakContext> => {
     const response = await api.get(`/breaks/${transactionUuid}/context`)
+    return response.data
+  },
+
+  getRawTransaction: async (transactionUuid: string): Promise<RawTransaction> => {
+    const response = await api.get(`/breaks/${transactionUuid}/raw`)
+    return response.data
+  },
+
+  ingestTransaction: async (payload: IngestRequest): Promise<{ status: string; transaction_uuid: string }> => {
+    const response = await ingestApi.post('/ingest', payload)
+    return response.data
+  },
+
+  ingestIso20022: async (payload: any): Promise<{ status: string; transaction_uuid: string }> => {
+    const response = await ingestApi.post('/ingest/iso20022', payload)
     return response.data
   },
 }

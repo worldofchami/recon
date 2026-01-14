@@ -1,9 +1,11 @@
 """Ingestion & Normalization Service."""
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime
 import uuid
 from typing import Dict, Any, Optional
+from decimal import Decimal, ROUND_HALF_UP
 from shared.database import get_db, SessionLocal
 from shared.models import Transaction
 from shared.supabase_db_client import get_mapping_config, save_mapping_config
@@ -12,6 +14,15 @@ from shared.pubsub_client import publish_message
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="Ingestion & Normalization Service", version="1.0.0")
+
+# Allow browser-based clients (Next.js on localhost:3000) to call this service.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class IngestRequest(BaseModel):
@@ -110,8 +121,9 @@ class NormalizerCore:
         mapping_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Normalize data using mapping configuration."""
-        field_mapping = mapping_config.get("field_mapping", {})
-        transformations = mapping_config.get("transformations", {})
+        field_mapping = mapping_config.get("field_mapping", {}) or {}
+        # Some configs may persist `transformations` as null; normalize that to {}.
+        transformations = mapping_config.get("transformations") or {}
         
         # Helper function to get field value (supports nested paths)
         def get_field_value(field_path: str, default: str = None) -> Any:
@@ -135,18 +147,67 @@ class NormalizerCore:
         amount_value = get_field_value(amount_path, "amount.value")
         currency_value = get_field_value(currency_path, "amount.currency")
         
-        # Handle date format - ISO 20022 uses YYYY-MM-DD, convert to datetime
+        # Handle date format and timezone normalization.
+        # - Plain dates (YYYY-MM-DD) are treated as midnight.
+        # - Trailing 'Z' (UTC designator) is converted to '+00:00' for fromisoformat().
+        # - Other valid ISO-8601 strings are passed through.
+        normalized_dt = None
         if transaction_datetime_str:
-            if len(transaction_datetime_str) == 10:  # YYYY-MM-DD format
-                transaction_datetime_str = f"{transaction_datetime_str}T00:00:00"
+            ts = transaction_datetime_str
+            if len(ts) == 10:  # YYYY-MM-DD format
+                ts = f"{ts}T00:00:00"
+            if ts.endswith("Z"):
+                ts = ts.replace("Z", "+00:00")
+            try:
+                normalized_dt = datetime.fromisoformat(ts)
+            except ValueError:
+                # If parsing fails, leave as None so the caller can decide how to handle it
+                normalized_dt = None
         
         normalized = {
             "source_system": source_system,
             "source_ref_id": str(source_ref_id) if source_ref_id else None,
-            "transaction_datetime_utc": datetime.fromisoformat(transaction_datetime_str) if transaction_datetime_str else None,
+            "transaction_datetime_utc": normalized_dt,
             "amount_local": float(amount_value) if amount_value else None,
             "currency_code_iso": currency_value,
         }
+
+        # Derive commission and merchant payout from fees config, if present.
+        # Fees are expected under metadata.fees; fall back to top-level 'fees' if present.
+        metadata = mapping_config.get("metadata") or {}
+        fees_config = metadata.get("fees") or mapping_config.get("fees") or {}
+        if normalized.get("amount_local") is not None and fees_config:
+            basis_field = fees_config.get("basis_field", "amount_local")
+            gross_amount = normalized.get(basis_field)
+            if gross_amount is not None:
+                mode = fees_config.get("mode", "percentage")
+                commission_amount = None
+
+                if mode == "percentage":
+                    rate = fees_config.get("rate")
+                    if rate is not None:
+                        commission_amount = float(
+                            (Decimal(str(gross_amount)) * Decimal(str(rate))).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
+                        )
+                elif mode == "fixed":
+                    fixed_fee = fees_config.get("amount")
+                    if fixed_fee is not None:
+                        commission_amount = float(
+                            Decimal(str(fixed_fee)).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
+                        )
+
+                if commission_amount is not None:
+                    merchant_payout = float(
+                        (Decimal(str(gross_amount)) - Decimal(str(commission_amount))).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
+                    )
+                    normalized["commission_amount"] = commission_amount
+                    normalized["merchant_payout"] = merchant_payout
         
         # Apply transformations if any
         for field, transform in transformations.items():
@@ -205,6 +266,8 @@ async def ingest_transaction(
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
             amount_local=normalized["amount_local"],
             currency_code_iso=normalized["currency_code_iso"],
+            commission_amount=normalized.get("commission_amount"),
+            merchant_payout=normalized.get("merchant_payout"),
             raw_data_uri=raw_data_uri
         )
         
@@ -295,6 +358,8 @@ async def ingest_iso20022(
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
             amount_local=normalized["amount_local"],
             currency_code_iso=normalized["currency_code_iso"],
+            commission_amount=normalized.get("commission_amount"),
+            merchant_payout=normalized.get("merchant_payout"),
             raw_data_uri=raw_data_uri
         )
         

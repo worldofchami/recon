@@ -16,7 +16,7 @@ const navigation = [
   { name: 'Exceptions', href: '/breaks', icon: AlertTriangle },
   { name: 'Config', href: '/config', icon: Settings },
   { name: 'Rules', href: '/rules', icon: FileCode },
-  { name: 'Direla', href: '/direla', icon: Users2 },
+  { name: 'Console', href: '/console', icon: Users2 },
 ]
 
 export default function Navbar() {

@@ -3,9 +3,10 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import httpx
+from urllib.parse import urlparse
 from shared.database import get_db
 from shared.models import Transaction
 from shared.supabase_db_client import get_mapping_config, log_audit_trail, get_all_sources
@@ -51,6 +52,44 @@ class BreakSearchResponse(BaseModel):
 class BreakContextResponse(BaseModel):
     transaction: dict
     match_peers: List[dict]
+
+
+class RawTransactionResponse(BaseModel):
+    transaction_uuid: str
+    raw_uri: str
+    content_type: Optional[str] = None
+    raw_text: str
+
+
+class DirelaIdSummary(BaseModel):
+    direla_id: str
+    transaction_count: int
+    last_activity: datetime
+    sources: List[str]
+
+
+class ConsoleTxnSummary(BaseModel):
+    transaction_uuid: str
+    direla_id: Optional[str] = None
+    source_system: str
+    source_ref_id: str
+    transaction_datetime_utc: datetime
+    amount_local: float
+    currency_code_iso: str
+    match_status: Optional[str] = None
+    confidence_score: Optional[float] = None
+
+
+class ConfidenceBucket(BaseModel):
+    label: str
+    count: int
+
+
+class ConsoleInsights(BaseModel):
+    avg_confidence: Optional[float] = None
+    confidence_buckets: List[ConfidenceBucket]
+    auto_settled_recent: List[ConsoleTxnSummary]
+    manual_review_recent: List[ConsoleTxnSummary]
 
 
 @app.get("/health")
@@ -237,6 +276,77 @@ async def save_mapping_config_endpoint(
     return {"status": "saved", "source_id": source_id}
 
 
+@app.get("/breaks/{transaction_uuid}/raw", response_model=RawTransactionResponse)
+async def get_raw_transaction(
+    transaction_uuid: str,
+    db: Session = Depends(get_db),
+):
+    """Fetch raw transaction payload from storage URI."""
+    transaction = (
+        db.query(Transaction)
+        .filter(Transaction.transaction_uuid == transaction_uuid)
+        .first()
+    )
+
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    raw_uri = transaction.raw_data_uri
+    if not raw_uri:
+        raise HTTPException(status_code=404, detail="Raw data URI not available")
+
+    parsed = urlparse(raw_uri)
+
+    # Handle local file URIs (used in development fallback)
+    if parsed.scheme == "file":
+        file_path = parsed.path
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                # Fallback to latin-1 to avoid errors; frontend just shows bytes as-is
+                text = content.decode("latin-1")
+            return RawTransactionResponse(
+                transaction_uuid=str(transaction.transaction_uuid),
+                raw_uri=raw_uri,
+                content_type="text/plain",
+                raw_text=text,
+            )
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Local raw file not found")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error reading local raw file: {str(e)}",
+            )
+
+    # Default: treat as HTTP(S) URL (e.g. Supabase public storage URL)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(raw_uri)
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch raw data from storage: {str(e)}",
+        )
+
+    content_type = resp.headers.get("content-type", "text/plain")
+    try:
+        text = resp.text
+    except UnicodeDecodeError:
+        text = resp.content.decode("latin-1", errors="replace")
+
+    return RawTransactionResponse(
+        transaction_uuid=str(transaction.transaction_uuid),
+        raw_uri=raw_uri,
+        content_type=content_type,
+        raw_text=text,
+    )
+
+
 @app.post("/breaks/resolve")
 async def resolve_break(
     transaction_uuid: str,
@@ -301,12 +411,21 @@ async def create_direla_id(
     from shared.direla_matching import DirelaMatchingEngine
     
     engine = DirelaMatchingEngine()
-    direla_id = engine.generate_direla_id(transaction_data)
+    requested_id = transaction_data.get("direla_id")
+    if requested_id:
+        # Trust operator-provided universal ID when present
+        direla_id = requested_id
+    else:
+        # Otherwise, let the engine generate one
+        direla_id = engine.generate_direla_id(transaction_data)
     
     log_audit_trail("DIRELA_ID_CREATED", user, {
         "direla_id": direla_id,
         "source_system": transaction_data.get("source_system"),
-        "amount": transaction_data.get("amount_local")
+        "source_ref_id": transaction_data.get("source_ref_id"),
+        "party_type": transaction_data.get("party_type"),
+        "phone_number": transaction_data.get("phone_number"),
+        "product_type": transaction_data.get("product_type"),
     })
     
     return {
@@ -326,6 +445,159 @@ async def get_sa_matching_rules():
         "electricity_rule": SouthAfricanMatchingRules.get_electricity_rule(), 
         "eft_rule": SouthAfricanMatchingRules.get_eft_rule()
     }
+
+
+@app.get("/direla/ids", response_model=List[DirelaIdSummary])
+async def list_direla_ids(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """
+    List recent Direla IDs that have at least one associated transaction.
+
+    This is primarily for UI/ops usage: to quickly see which universal IDs
+    are active and how many parties/transactions are linked.
+    """
+    # Pull a window of recent transactions that have a non-null Direla ID
+    transactions = (
+        db.query(Transaction)
+        .filter(Transaction.direla_id.isnot(None))
+        .order_by(Transaction.created_at.desc())
+        .limit(500)
+        .all()
+    )
+
+    summaries: Dict[str, DirelaIdSummary] = {}
+
+    for t in transactions:
+        if not t.direla_id:
+            continue
+
+        existing = summaries.get(t.direla_id)
+        sources = {t.source_system}
+        if existing:
+            sources.update(existing.sources)
+
+        transaction_count = 1
+        last_activity = t.created_at
+
+        if existing:
+            transaction_count += existing.transaction_count
+            if existing.last_activity and existing.last_activity > last_activity:
+                last_activity = existing.last_activity
+
+        summaries[t.direla_id] = DirelaIdSummary(
+            direla_id=t.direla_id,
+            transaction_count=transaction_count,
+            last_activity=last_activity,
+            sources=sorted(list(sources)),
+        )
+
+    # Return the most recent Direla IDs by last activity
+    sorted_summaries = sorted(
+        summaries.values(),
+        key=lambda s: s.last_activity or datetime.min,
+        reverse=True,
+    )
+
+    return sorted_summaries[:limit]
+
+
+@app.get("/console/insights", response_model=ConsoleInsights)
+async def get_console_insights(
+    limit: int = Query(default=15, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Operator console insights:
+    - Confidence distribution (from recent transactions with confidence_score)
+    - Recent auto-settled transactions
+    - Recent manual-review transactions
+    """
+    matched_statuses = [
+        "MATCHED_1_1",
+        "MATCHED_N_1",
+        "MATCHED_FUZZY",
+        "DIRELA_VERIFIED",
+        "MANUAL_ADJ",
+    ]
+
+    # Confidence distribution + average (windowed for speed)
+    recent_for_conf = (
+        db.query(Transaction)
+        .filter(Transaction.confidence_score.isnot(None))
+        .order_by(Transaction.created_at.desc())
+        .limit(500)
+        .all()
+    )
+
+    scores: List[float] = []
+    for t in recent_for_conf:
+        try:
+            scores.append(float(t.confidence_score))
+        except Exception:
+            continue
+
+    avg_confidence: Optional[float] = None
+    if scores:
+        avg_confidence = sum(scores) / len(scores)
+
+    # Buckets: 0-50, 50-70, 70-85, 85-95, 95-100
+    bucket_defs = [
+        ("0–50", 0, 50),
+        ("50–70", 50, 70),
+        ("70–85", 70, 85),
+        ("85–95", 85, 95),
+        ("95–100", 95, 101),
+    ]
+    bucket_counts = {label: 0 for (label, _, __) in bucket_defs}
+    for s in scores:
+        for label, lo, hi in bucket_defs:
+            if lo <= s < hi:
+                bucket_counts[label] += 1
+                break
+
+    confidence_buckets = [
+        ConfidenceBucket(label=label, count=bucket_counts[label]) for (label, _, __) in bucket_defs
+    ]
+
+    # Recent auto-settled: any "matched" style status
+    auto_recent = (
+        db.query(Transaction)
+        .filter(Transaction.match_status.in_(matched_statuses))
+        .order_by(Transaction.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # Recent manual review: explicitly flagged
+    manual_recent = (
+        db.query(Transaction)
+        .filter(Transaction.match_status == "DIRELA_REVIEW_REQUIRED")
+        .order_by(Transaction.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    def to_console_txn(t: Transaction) -> ConsoleTxnSummary:
+        return ConsoleTxnSummary(
+            transaction_uuid=str(t.transaction_uuid),
+            direla_id=t.direla_id,
+            source_system=t.source_system,
+            source_ref_id=t.source_ref_id,
+            transaction_datetime_utc=t.transaction_datetime_utc,
+            amount_local=float(t.amount_local),
+            currency_code_iso=t.currency_code_iso,
+            match_status=t.match_status,
+            confidence_score=float(t.confidence_score) if t.confidence_score is not None else None,
+        )
+
+    return ConsoleInsights(
+        avg_confidence=avg_confidence,
+        confidence_buckets=confidence_buckets,
+        auto_settled_recent=[to_console_txn(t) for t in auto_recent],
+        manual_review_recent=[to_console_txn(t) for t in manual_recent],
+    )
 
 
 if __name__ == "__main__":

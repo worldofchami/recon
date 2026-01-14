@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { apiClient } from '@/lib/api'
+import { useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { 
   FileText, 
@@ -128,11 +129,100 @@ function CustomTooltip({ active, payload }: any) {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    activity: any
+  } | null>(null)
+  const [rawModal, setRawModal] = useState<{
+    open: boolean
+    loading: boolean
+    error: string | null
+    content: string | null
+    uri: string | null
+    transactionId: string | null
+  }>({
+    open: false,
+    loading: false,
+    error: null,
+    content: null,
+    uri: null,
+    transactionId: null,
+  })
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: apiClient.getDashboardSummary,
     refetchInterval: 30000,
   })
+
+  const closeContextMenu = () => {
+    setContextMenu(null)
+  }
+
+  const openRawModalForActivity = async (activity: any) => {
+    setRawModal({
+      open: true,
+      loading: true,
+      error: null,
+      content: null,
+      uri: null,
+      transactionId: activity.transaction_uuid,
+    })
+    try {
+      const raw = await apiClient.getRawTransaction(activity.transaction_uuid)
+      setRawModal({
+        open: true,
+        loading: false,
+        error: null,
+        content: raw.raw_text,
+        uri: raw.raw_uri,
+        transactionId: activity.transaction_uuid,
+      })
+    } catch (err: any) {
+      setRawModal({
+        open: true,
+        loading: false,
+        error: err?.response?.data?.detail || 'Failed to load raw transaction data',
+        content: null,
+        uri: null,
+        transactionId: activity.transaction_uuid,
+      })
+    }
+  }
+
+  const formatRawContent = (text: string) => {
+    try {
+      const parsed = JSON.parse(text)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      return text
+    }
+  }
+
+  const handleCopyRawUrl = async () => {
+    if (!rawModal.uri) return
+    try {
+      await navigator.clipboard.writeText(rawModal.uri)
+    } catch {
+      // ignore clipboard errors
+    }
+  }
+
+  const handleDownloadRawJson = () => {
+    if (!rawModal.content) return
+    const pretty = formatRawContent(rawModal.content)
+    const blob = new Blob([pretty], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const filename = `transaction-${rawModal.transactionId || 'raw'}.json`
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   if (isLoading) {
     return <LoadingSkeleton />
@@ -284,8 +374,16 @@ export default function DashboardPage() {
             <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
               {data?.recent_activity?.slice(0, 6).map((activity: any) => (
                 <div 
-                  key={activity.transaction_uuid} 
-                  className="group p-4 rounded-xl bg-white/[0.06] border border-white/[0.12] hover:bg-white/[0.1] hover:border-white/[0.2] transition-all duration-200"
+                  key={activity.transaction_uuid}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      activity,
+                    })
+                  }}
+                  className="group p-4 rounded-xl bg-white/[0.06] border border-white/[0.12] hover:bg-white/[0.1] hover:border-white/[0.2] transition-all duration-200 cursor-default"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -357,6 +455,118 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Right-click context menu for recent transactions */}
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={closeContextMenu}
+        >
+          <div
+            className="absolute min-w-[180px] rounded-lg bg-surface-elevated border border-white/10 shadow-xl py-1 text-sm"
+            style={{ top: contextMenu.y, left: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="w-full text-left px-3 py-2 hover:bg-white/[0.06] text-content-primary flex items-center gap-2"
+              onClick={() => {
+                openRawModalForActivity(contextMenu.activity)
+                closeContextMenu()
+              }}
+            >
+              View raw transaction
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Raw transaction modal */}
+      {rawModal.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+          onClick={() =>
+            setRawModal({
+              open: false,
+              loading: false,
+              error: null,
+              content: null,
+              uri: null,
+              transactionId: null,
+            })
+          }
+        >
+          <div
+            className="glass-card max-w-4xl w-full max-h-[90vh] overflow-hidden rounded-2xl border border-white/[0.2] shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.15]">
+              <div>
+                <h2 className="text-base font-semibold text-content-primary">
+                  Raw Transaction Data
+                </h2>
+                {rawModal.uri && (
+                  <p className="text-[11px] text-content-muted truncate max-w-[32rem]">
+                    Source: {rawModal.uri}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {rawModal.uri && (
+                  <button
+                    type="button"
+                    onClick={handleCopyRawUrl}
+                    className="btn-secondary px-3 py-1.5 text-xs"
+                  >
+                    Copy URL
+                  </button>
+                )}
+                {rawModal.content && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadRawJson}
+                    className="btn-secondary px-3 py-1.5 text-xs"
+                  >
+                    Download JSON
+                  </button>
+                )}
+                <button
+                  className="btn-secondary p-2 hover:bg-white/[0.1] transition-colors"
+                  onClick={() =>
+                    setRawModal({
+                      open: false,
+                      loading: false,
+                      error: null,
+                      content: null,
+                      uri: null,
+                      transactionId: null,
+                    })
+                  }
+                >
+                  <Clock className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto bg-black/40">
+              {rawModal.loading && (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <div className="w-7 h-7 border-2 border-accent-emerald/20 border-t-accent-emerald rounded-full animate-spin mb-3" />
+                  <p className="text-xs text-content-tertiary">Loading raw data...</p>
+                </div>
+              )}
+              {!rawModal.loading && rawModal.error && (
+                <p className="text-xs text-status-error font-mono whitespace-pre-wrap">
+                  {rawModal.error}
+                </p>
+              )}
+              {!rawModal.loading && !rawModal.error && rawModal.content && (
+                <pre className="text-xs text-content-primary font-mono whitespace-pre-wrap">
+                  {formatRawContent(rawModal.content)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

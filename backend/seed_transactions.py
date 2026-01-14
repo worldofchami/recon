@@ -13,7 +13,7 @@ Generates diverse transaction scenarios based on matching rules:
 import uuid
 import random
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from shared.database import SessionLocal, engine
 from shared.models import Transaction, MatchingRule
 from shared.direla_matching import SouthAfricanMatchingRules
+from services.ingestion.main import RawArchiver
 
 
 class ScenarioType(Enum):
@@ -57,7 +58,10 @@ class TransactionGroup:
 
 class TransactionSeeder:
     """Generates test transactions based on matching rules."""
-    
+    # Seeded transaction time window: from start of Nov 2025 through end of Jan 2026
+    SEED_WINDOW_START = datetime(2025, 11, 1, 0, 0, 0)
+    SEED_WINDOW_END = datetime(2026, 1, 31, 23, 59, 59)
+
     # South African phone prefixes
     SA_PHONE_PREFIXES = ["082", "083", "084", "072", "073", "074", "060", "061", "062"]
     
@@ -92,6 +96,38 @@ class TransactionSeeder:
         self.rules = self._load_rules()
         self.seeded_count = 0
         self.groups_created = 0
+
+    def _random_time_between(self, start: datetime, end: datetime) -> datetime:
+        """Return a random datetime between start and end."""
+        if end <= start:
+            return start
+        total_seconds = int((end - start).total_seconds())
+        return start + timedelta(seconds=random.randint(0, total_seconds))
+
+    def _random_base_time(self, max_offset: timedelta = timedelta()) -> datetime:
+        """
+        Base timestamp for a transaction group, ensuring that all party offsets
+        still keep events within the configured seed window.
+        """
+        end = self.SEED_WINDOW_END - max_offset
+        return self._random_time_between(self.SEED_WINDOW_START, end)
+
+    def _random_weekend_early_morning(self) -> datetime:
+        """Pick a random weekend date in the window at ~02:30 AM."""
+        start_date = self.SEED_WINDOW_START.date()
+        end_date = self.SEED_WINDOW_END.date()
+        days = (end_date - start_date).days + 1
+        weekend_dates = [
+            start_date + timedelta(days=i)
+            for i in range(days)
+            if (start_date + timedelta(days=i)).weekday() >= 5  # Saturday/Sunday
+        ]
+        if not weekend_dates:
+            # Fallback to any date in window
+            base = self._random_time_between(self.SEED_WINDOW_START, self.SEED_WINDOW_END)
+            return base.replace(hour=2, minute=30, second=0, microsecond=0)
+        d = random.choice(weekend_dates)
+        return datetime(d.year, d.month, d.day, 2, 30)
         
     def _load_rules(self) -> List[Dict[str, Any]]:
         """Load matching rules from database, creating defaults if none exist."""
@@ -206,7 +242,7 @@ class TransactionSeeder:
     def generate_source_ref(self, system: str) -> str:
         """Generate a realistic source reference ID."""
         prefix = system.upper()[:3]
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         seq = random.randint(1000, 9999)
         return f"{prefix}-{timestamp}-{seq}"
     
@@ -225,13 +261,44 @@ class TransactionSeeder:
         confidence_score: float = None,
     ) -> Transaction:
         """Create a transaction record."""
-        timestamp = timestamp or datetime.utcnow()
+        timestamp = timestamp or self._random_time_between(self.SEED_WINDOW_START, self.SEED_WINDOW_END)
+        source_ref_id = self.generate_source_ref(source_system)
+
+        # Build a synthetic raw payload that roughly mirrors the Transaction
+        raw_payload: Dict[str, Any] = {
+            "source_system": source_system,
+            "source_ref_id": source_ref_id,
+            "transaction_datetime_utc": timestamp.isoformat(),
+            "amount_local": float(amount),
+            "currency_code_iso": currency,
+            "party_type": party_type,
+            "phone_number": phone_number,
+            "product_type": product_type,
+        }
+
+        merchant_payout: Optional[Decimal] = None
+        if commission is not None:
+            # Derive a simple net payout for more realistic financials
+            merchant_payout = amount - commission
+            raw_payload["fees"] = {
+                "type": "COMMISSION",
+                "mode": "fixed",
+                "amount": float(commission),
+                "basis_field": "amount_local",
+            }
+
+        # Archive raw payload via the same Supabase/raw-data path as real ingestion
+        raw_data_uri = RawArchiver.archive(
+            raw_payload,
+            source_system=source_system,
+            source_ref_id=source_ref_id,
+        )
         
         txn = Transaction(
             transaction_uuid=uuid.uuid4(),
             direla_id=direla_id,
             source_system=source_system,
-            source_ref_id=self.generate_source_ref(source_system),
+            source_ref_id=source_ref_id,
             transaction_datetime_utc=timestamp,
             amount_local=amount,
             currency_code_iso=currency,
@@ -239,7 +306,8 @@ class TransactionSeeder:
             phone_number=phone_number,
             product_type=product_type,
             commission_amount=commission,
-            raw_data_uri=f"gs://recon-data/{source_system}/{timestamp.strftime('%Y/%m/%d')}/{uuid.uuid4()}.json",
+            merchant_payout=merchant_payout,
+            raw_data_uri=raw_data_uri,
             match_status=match_status,
             confidence_score=confidence_score,
         )
@@ -252,7 +320,8 @@ class TransactionSeeder:
     def generate_perfect_airtime_match(self) -> TransactionGroup:
         """Generate a perfect 3-party airtime transaction group."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 48))
+        # Max offset between parties ~25 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=25))
         phone = self.generate_phone_number("normal")
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["airtime"])))
         product = random.choice(self.PRODUCT_TYPES["airtime"])
@@ -309,7 +378,8 @@ class TransactionSeeder:
     def generate_perfect_electricity_match(self) -> TransactionGroup:
         """Generate a perfect electricity prepaid transaction."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 72))
+        # Max offset between parties ~90 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=90))
         meter_number = f"0{random.randint(100000000, 999999999)}"
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["electricity"])))
         product = random.choice(self.PRODUCT_TYPES["electricity"])
@@ -360,7 +430,8 @@ class TransactionSeeder:
     def generate_timing_discrepancy(self) -> TransactionGroup:
         """Generate transactions with timing issues (outside window)."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(24, 96))
+        # Telco can be delayed up to 60 minutes
+        base_time = self._random_base_time(max_offset=timedelta(minutes=60))
         phone = self.generate_phone_number()
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["airtime"])))
         product = random.choice(self.PRODUCT_TYPES["airtime"])
@@ -412,7 +483,8 @@ class TransactionSeeder:
     def generate_amount_discrepancy(self) -> TransactionGroup:
         """Generate transactions with amount mismatches."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 48))
+        # Max offset between parties ~20 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=20))
         phone = self.generate_phone_number()
         base_amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["airtime"])))
         product = random.choice(self.PRODUCT_TYPES["airtime"])
@@ -467,7 +539,8 @@ class TransactionSeeder:
     def generate_phone_variation(self) -> TransactionGroup:
         """Generate transactions with phone number format variations."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 24))
+        # Max offset between parties ~10 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=10))
         base_phone = self.generate_phone_number("normal")
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["airtime"])))
         product = random.choice(self.PRODUCT_TYPES["airtime"])
@@ -507,7 +580,8 @@ class TransactionSeeder:
     def generate_missing_party(self) -> TransactionGroup:
         """Generate incomplete multi-party flow (missing one party)."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 48))
+        # Max offset between parties ~5 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=5))
         phone = self.generate_phone_number()
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["airtime"])))
         product = random.choice(self.PRODUCT_TYPES["airtime"])
@@ -545,7 +619,7 @@ class TransactionSeeder:
     
     def generate_orphan_transaction(self) -> TransactionGroup:
         """Generate a single orphan transaction with no matching counterparts."""
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 72))
+        base_time = self._random_base_time()
         
         category = random.choice(list(self.COMMON_AMOUNTS.keys()))
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS[category])))
@@ -574,11 +648,8 @@ class TransactionSeeder:
     def generate_fraud_indicator(self) -> TransactionGroup:
         """Generate transactions with potential fraud indicators."""
         direla_id = self.generate_direla_id()
-        
         # Late night/weekend transaction with round high value
-        base_time = datetime.utcnow().replace(hour=2, minute=30)  # 2:30 AM
-        if base_time.weekday() < 5:
-            base_time += timedelta(days=(5 - base_time.weekday()))  # Move to Saturday
+        base_time = self._random_weekend_early_morning()
         
         phone = self.generate_phone_number()
         amount = Decimal("5000.00")  # Round high value
@@ -612,7 +683,8 @@ class TransactionSeeder:
     def generate_eft_cross_bank(self) -> TransactionGroup:
         """Generate a 2-party bank EFT transaction."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 24))
+        # Destination bank can be delayed up to 3 hours
+        base_time = self._random_base_time(max_offset=timedelta(hours=3))
         amount = Decimal(str(random.choice(self.COMMON_AMOUNTS["banking"])))
         
         banks = random.sample(self.SOURCE_SYSTEMS["BANK"], 2)
@@ -650,7 +722,8 @@ class TransactionSeeder:
     def generate_remittance_flow(self) -> TransactionGroup:
         """Generate a 5-party cross-border remittance transaction."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(6, 48))
+        # Max offset between parties ~15 minutes
+        base_time = self._random_base_time(max_offset=timedelta(minutes=15))
         amount_zar = Decimal(str(random.choice([1000, 2500, 5000, 10000])))
         
         # Simulate USD equivalent
@@ -695,7 +768,8 @@ class TransactionSeeder:
     def generate_marketplace_flow(self) -> TransactionGroup:
         """Generate a variable-party marketplace transaction."""
         direla_id = self.generate_direla_id()
-        base_time = datetime.utcnow() - timedelta(hours=random.randint(1, 24))
+        # Max offset between parties ~120 seconds
+        base_time = self._random_base_time(max_offset=timedelta(seconds=120))
         amount = Decimal(str(random.choice([150, 299, 499, 999, 1499, 2999])))
         
         # Marketplace fees
@@ -875,8 +949,8 @@ def main():
     parser.add_argument(
         "--count", "-c",
         type=int,
-        default=500,
-        help="Number of transaction groups to create (default: 500)"
+        default=25,
+        help="Number of transaction groups to create (default: 25)"
     )
     parser.add_argument(
         "--clear", "-x",
