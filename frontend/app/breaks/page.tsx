@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { Suspense, useMemo, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient, BreakSearchRequest, Break, BreakContext } from '@/lib/api'
@@ -21,6 +21,26 @@ import {
 } from 'lucide-react'
 
 export default function BreaksPage() {
+  return (
+    <Suspense fallback={<BreaksPageFallback />}>
+      <BreaksPageContent />
+    </Suspense>
+  )
+}
+
+function BreaksPageFallback() {
+  return (
+    <div className="p-6">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-48 rounded bg-gray-200" />
+        <div className="h-10 w-full rounded bg-gray-200" />
+        <div className="h-96 w-full rounded bg-gray-200" />
+      </div>
+    </div>
+  )
+}
+
+function BreaksPageContent() {
   const urlSearchParams = useSearchParams()
   const initialFilters = useMemo<BreakSearchRequest>(() => ({
     page: 1,
