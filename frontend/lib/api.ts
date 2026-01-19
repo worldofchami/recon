@@ -1,4 +1,6 @@
 import axios from 'axios'
+import dotenv from 'dotenv'
+dotenv.config()
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const INGEST_URL = process.env.NEXT_PUBLIC_INGEST_URL || 'http://localhost:8001'
