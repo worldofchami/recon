@@ -4,8 +4,11 @@ import { ReactQueryProvider } from './providers'
 import Navbar from './components/Navbar'
 
 export const metadata: Metadata = {
-  title: 'Recon | Financial Reconciliation Platform',
+  title: 'Direla | Enterprise Reconciliation Engine',
   description: 'Enterprise-grade event-driven reconciliation for high-volume financial operations',
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({

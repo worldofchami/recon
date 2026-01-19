@@ -162,8 +162,10 @@ class MatchingLogic:
                 # Use the most recent failure reason, falling back to generic category
                 transaction.break_category = failure_reasons[-1] if rules and failure_reasons else self.categorize_break(transaction)
                 
-                # Store break metadata with context
+                # Store break metadata with context, preserving any existing candidates
+                existing_metadata = transaction.break_metadata or {}
                 transaction.break_metadata = {
+                    **existing_metadata,  # Preserve candidates and any other existing metadata
                     "failure_reasons": failure_reasons,
                     "rules_attempted": [{"name": r.get("name"), "type": r.get("type")} for r in rules],
                     "timestamp": datetime.utcnow().isoformat(),
@@ -221,12 +223,14 @@ class MatchingLogic:
         rule: Dict[str, Any],
         db: Session
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """1:1 matching logic."""
+        """1:1 matching logic with enhanced field matching."""
         criteria = rule.get("criteria", {})
         target_system = criteria.get("target_system")
         time_window_minutes = criteria.get("time_window_minutes", 60)
         amount_tolerance = criteria.get("amount_tolerance", 0.01)
         amount_field = criteria.get("amount_field", "amount_local")
+        match_on_ids = criteria.get("match_on_ids", {})
+        exact_match_fields = criteria.get("exact_match_fields", [])
         
         if not target_system:
             logger.warning("1:1 rule missing target_system")
@@ -242,34 +246,91 @@ class MatchingLogic:
         # (merchant_payout) on the Kazang side while matching to bank statement amount_local.
         source_amount_value = getattr(transaction, amount_field, None) or transaction.amount_local
 
-        candidates = db.query(Transaction).filter(
-            and_(
-                Transaction.source_system == target_system,
-                Transaction.transaction_datetime_utc >= time_from,
-                Transaction.transaction_datetime_utc <= time_to,
-                or_(
-                    Transaction.match_status == "UNMATCHED",
-                    Transaction.match_status.is_(None)
-                ),
-                Transaction.amount_local.between(
-                    float(source_amount_value) - amount_tolerance,
-                    float(source_amount_value) + amount_tolerance
-                ),
-                Transaction.transaction_uuid != transaction.transaction_uuid  # Don't match to self
-            )
-        ).all()
+        # Build base filter conditions
+        filter_conditions = [
+            Transaction.source_system == target_system,
+            Transaction.transaction_datetime_utc >= time_from,
+            Transaction.transaction_datetime_utc <= time_to,
+            or_(
+                Transaction.match_status == "UNMATCHED",
+                Transaction.match_status.is_(None)
+            ),
+            Transaction.amount_local.between(
+                float(source_amount_value) - amount_tolerance,
+                float(source_amount_value) + amount_tolerance
+            ),
+            Transaction.transaction_uuid != transaction.transaction_uuid  # Don't match to self
+        ]
+        
+        # Add ID-based matching conditions
+        if match_on_ids.get("source_ref_id") and transaction.source_ref_id:
+            filter_conditions.append(Transaction.source_ref_id == transaction.source_ref_id)
+        
+        if match_on_ids.get("direla_id") and transaction.direla_id:
+            filter_conditions.append(Transaction.direla_id == transaction.direla_id)
+        
+        if match_on_ids.get("phone_number") and transaction.phone_number:
+            filter_conditions.append(Transaction.phone_number == transaction.phone_number)
+        
+        if match_on_ids.get("product_type") and transaction.product_type:
+            filter_conditions.append(Transaction.product_type == transaction.product_type)
+        
+        # Add exact match field conditions
+        for field_name in exact_match_fields:
+            source_value = getattr(transaction, field_name, None)
+            if source_value is not None:
+                field_attr = getattr(Transaction, field_name)
+                filter_conditions.append(field_attr == source_value)
+
+        candidates = db.query(Transaction).filter(and_(*filter_conditions)).all()
+        
+        # If we have ID-based matching, filter candidates further
+        if match_on_ids or exact_match_fields:
+            filtered_candidates = []
+            for candidate in candidates:
+                match = True
+                
+                # Check ID-based matches
+                if match_on_ids.get("source_ref_id") and transaction.source_ref_id:
+                    if candidate.source_ref_id != transaction.source_ref_id:
+                        match = False
+                
+                if match_on_ids.get("direla_id") and transaction.direla_id:
+                    if candidate.direla_id != transaction.direla_id:
+                        match = False
+                
+                if match_on_ids.get("phone_number") and transaction.phone_number:
+                    if candidate.phone_number != transaction.phone_number:
+                        match = False
+                
+                if match_on_ids.get("product_type") and transaction.product_type:
+                    if candidate.product_type != transaction.product_type:
+                        match = False
+                
+                # Check exact match fields
+                for field_name in exact_match_fields:
+                    source_value = getattr(transaction, field_name, None)
+                    candidate_value = getattr(candidate, field_name, None)
+                    if source_value is not None and candidate_value != source_value:
+                        match = False
+                        break
+                
+                if match:
+                    filtered_candidates.append(candidate)
+            
+            candidates = filtered_candidates
         
         if len(candidates) == 1:
-            match_id = str(uuid.uuid4())
+            match_uuid = uuid.uuid4()
             # Update both transactions
-            transaction.match_id = match_id
-            candidates[0].match_id = match_id
+            transaction.match_id = match_uuid
+            candidates[0].match_id = match_uuid
             transaction.match_status = "MATCHED_1_1"
             candidates[0].match_status = "MATCHED_1_1"
             db.commit()
             
             return {
-                "match_id": match_id,
+                "match_id": str(match_uuid),
                 "match_status": "MATCHED_1_1",
                 "break_category": rule.get("break_category"),
                 "metadata": {
@@ -357,17 +418,17 @@ class MatchingLogic:
 
         # Compare the sum against the incoming transaction's amount
         if abs(sum_n_amounts - float(transaction.amount_local)) <= amount_tolerance:
-            match_id = str(uuid.uuid4())
+            match_uuid = uuid.uuid4()
             # Update all matched transactions
-            transaction.match_id = match_id
+            transaction.match_id = match_uuid
             transaction.match_status = "MATCHED_N_1"
             for candidate in n_candidates:
-                candidate.match_id = match_id
+                candidate.match_id = match_uuid
                 candidate.match_status = "MATCHED_N_1"
             db.commit()
 
             return {
-                "match_id": match_id,
+                "match_id": str(match_uuid),
                 "match_status": "MATCHED_N_1",
                 "break_category": rule.get("break_category")
             }, None
@@ -433,16 +494,16 @@ class MatchingLogic:
                 best_match = candidate
         
         if best_match:
-            match_id = str(uuid.uuid4())
-            transaction.match_id = match_id
-            best_match.match_id = match_id
+            match_uuid = uuid.uuid4()
+            transaction.match_id = match_uuid
+            best_match.match_id = match_uuid
             transaction.match_status = "MATCHED_FUZZY"
             best_match.match_status = "MATCHED_FUZZY"
             db.commit()
             
             logger.info(f"Fuzzy match found with {best_score}% similarity")
             return {
-                "match_id": match_id,
+                "match_id": str(match_uuid),
                 "match_status": "MATCHED_FUZZY",
                 "break_category": rule.get("break_category"),
                 "metadata": {
@@ -499,11 +560,11 @@ class MatchingLogic:
         
         # Determine if safe to auto-match
         if self.direla_engine.should_auto_settle(confidence):
-            match_id = str(uuid.uuid4())
+            match_uuid = uuid.uuid4()
             
             # Update all related transactions
             for txn in related_transactions:
-                txn.match_id = match_id
+                txn.match_id = match_uuid
                 txn.match_status = "DIRELA_VERIFIED"
                 txn.confidence_score = confidence
             
@@ -511,7 +572,7 @@ class MatchingLogic:
             
             logger.info(f"Direla ID {direla_id} auto-matched with {confidence:.1f}% confidence")
             return {
-                "match_id": match_id,
+                "match_id": str(match_uuid),
                 "match_status": "DIRELA_VERIFIED", 
                 "confidence": confidence,
                 "direla_id": direla_id

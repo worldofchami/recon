@@ -123,9 +123,13 @@ export const apiClient = {
     await api.post(`/config/mapping/${sourceId}`, config)
   },
 
-  resolveBreak: async (transactionUuid: string, action: string): Promise<void> => {
+  resolveBreak: async (transactionUuid: string, action: string, candidateUuid?: string): Promise<void> => {
     await api.post('/breaks/resolve', null, {
-      params: { transaction_uuid: transactionUuid, action },
+      params: { 
+        transaction_uuid: transactionUuid, 
+        action,
+        ...(candidateUuid && { candidate_uuid: candidateUuid }),
+      },
     })
   },
 
@@ -150,9 +154,28 @@ export const apiClient = {
     return response.data
   },
 
+  getRules: async (): Promise<any[]> => {
+    const response = await api.get('/rules')
+    return response.data.rules || []
+  },
+
+  getRule: async (ruleId: string): Promise<any> => {
+    const response = await api.get(`/rules/${ruleId}`)
+    return response.data
+  },
+
   createRule: async (rule: any): Promise<{ rule_id: string }> => {
     const response = await api.post('/rules', rule)
     return response.data
+  },
+
+  updateRule: async (ruleId: string, rule: any): Promise<{ rule_id: string }> => {
+    const response = await api.put(`/rules/${ruleId}`, rule)
+    return response.data
+  },
+
+  deleteRule: async (ruleId: string): Promise<void> => {
+    await api.delete(`/rules/${ruleId}`)
   },
 
   reprocessTransaction: async (transactionUuid: string): Promise<void> => {

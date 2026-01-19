@@ -12,11 +12,11 @@ import {
 } from 'lucide-react'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Exceptions', href: '/breaks', icon: AlertTriangle },
-  { name: 'Config', href: '/config', icon: Settings },
-  { name: 'Rules', href: '/rules', icon: FileCode },
-  { name: 'Console', href: '/console', icon: Users2 },
+  { name: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Breaks', href: '/breaks', icon: AlertTriangle },
+  { name: 'Sources', href: '/config', icon: Settings },
+  { name: 'Matching Rules', href: '/rules', icon: FileCode },
+  { name: 'Operator Console', href: '/console', icon: Users2 },
 ]
 
 export default function Navbar() {

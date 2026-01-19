@@ -76,10 +76,18 @@ export default function BreaksPage() {
   })
 
   const resolveMutation = useMutation({
-    mutationFn: ({ uuid, resolution }: { uuid: string; resolution: string }) => 
-      apiClient.resolveBreak(uuid, resolution),
+    mutationFn: ({ uuid, resolution, candidateUuid }: { uuid: string; resolution: string; candidateUuid?: string }) => 
+      apiClient.resolveBreak(uuid, resolution, candidateUuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['breaks-search'] })
+      queryClient.invalidateQueries({ queryKey: ['break-context', selectedBreak?.transaction_uuid] })
+      // Refresh the selected break data
+      if (selectedBreak) {
+        setSelectedBreak(null)
+        setTimeout(() => {
+          setSelectedBreak({ ...selectedBreak } as Break)
+        }, 100)
+      }
     },
   })
 
@@ -117,24 +125,24 @@ export default function BreaksPage() {
     setContextMenu(null)
   }
 
-  const openRawModalForBreak = async (breakItem: Break) => {
+  const openRawModalForTransaction = async (transactionUuid: string) => {
     setRawModal({
       open: true,
       loading: true,
       error: null,
       content: null,
       uri: null,
-      transactionId: breakItem.transaction_uuid,
+      transactionId: transactionUuid,
     })
     try {
-      const raw = await apiClient.getRawTransaction(breakItem.transaction_uuid)
+      const raw = await apiClient.getRawTransaction(transactionUuid)
       setRawModal({
         open: true,
         loading: false,
         error: null,
         content: raw.raw_text,
         uri: raw.raw_uri,
-        transactionId: breakItem.transaction_uuid,
+        transactionId: transactionUuid,
       })
     } catch (err: any) {
       setRawModal({
@@ -143,7 +151,7 @@ export default function BreaksPage() {
         error: err?.response?.data?.detail || 'Failed to load raw transaction data',
         content: null,
         uri: null,
-        transactionId: breakItem.transaction_uuid,
+        transactionId: transactionUuid,
       })
     }
   }
@@ -489,7 +497,7 @@ export default function BreaksPage() {
             <button
               className="w-full text-left px-3 py-2 hover:bg-white/[0.06] text-content-primary flex items-center gap-2"
               onClick={() => {
-                openRawModalForBreak(contextMenu.breakItem)
+                openRawModalForTransaction(contextMenu.breakItem.transaction_uuid)
                 closeContextMenu()
               }}
             >
@@ -502,7 +510,7 @@ export default function BreaksPage() {
       {/* Raw transaction modal */}
       {rawModal.open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
           onClick={() =>
             setRawModal({
               open: false,
@@ -602,13 +610,20 @@ export default function BreaksPage() {
                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent-rose/10">
                   <AlertTriangle className="w-5 h-5 text-accent-rose" />
                 </div>
-                <div>
+                <div className="space-y-1">
                   <h2 className="text-xl font-bold text-content-primary">
                     Break Details
                   </h2>
                   <p className="text-xs text-content-muted">
                     Transaction UUID: {selectedBreak.transaction_uuid.slice(0, 8)}...
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => openRawModalForTransaction(selectedBreak.transaction_uuid)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.05] hover:bg-white/[0.1] text-[11px] text-content-secondary border border-white/[0.12]"
+                  >
+                    View raw transaction
+                  </button>
                 </div>
               </div>
               <button
@@ -865,68 +880,99 @@ export default function BreaksPage() {
                     <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wider mb-4">
                       Potential Matches Found (But Not Matched)
                     </h3>
-                    <div className="space-y-3">
-                      {selectedBreak.break_metadata.candidates.map((candidate, idx) => (
-                        <div key={idx} className="glass-card bg-white/[0.06] border-white/[0.15] p-4 rounded-xl">
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-center">
-                            <div>
-                              <label className="text-xs font-medium text-content-secondary mb-1 block">
-                                Source
-                              </label>
-                              <p className="text-sm text-content-primary font-medium">
+                    <div className="overflow-hidden rounded-xl border border-white/[0.12] bg-white/[0.02]">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-white/[0.03] text-left uppercase tracking-wide text-content-tertiary">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Source</th>
+                            <th className="px-3 py-2 font-medium">Reference ID</th>
+                            <th className="px-3 py-2 font-medium">Amount</th>
+                            <th className="px-3 py-2 font-medium">Date/Time</th>
+                            <th className="px-3 py-2 font-medium">Similarity</th>
+                            <th className="px-3 py-2 font-medium text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedBreak.break_metadata.candidates.map((candidate, idx) => (
+                            <tr
+                              key={idx}
+                              className="border-t border-white/[0.04] hover:bg-white/[0.03] transition-colors"
+                            >
+                              <td className="px-3 py-2 text-content-primary">
                                 {candidate.source_system}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-content-secondary mb-1 block">
-                                Reference ID
-                              </label>
-                              <p className="text-xs font-mono text-content-secondary">
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[11px] text-content-secondary">
                                 {candidate.source_ref_id}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-content-secondary mb-1 block">
-                                Amount
-                              </label>
-                              <p className="text-sm font-semibold text-content-primary tabular-nums">
-                                {Number(candidate.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} {candidate.currency}
-                              </p>
-                              {Math.abs(Number(candidate.amount) - Number(selectedBreak.amount_local)) > 0.01 && (
-                                <p className="text-xs text-accent-amber mt-1">
-                                  Δ {(Number(candidate.amount) - Number(selectedBreak.amount_local)).toFixed(2)}
-                                </p>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-content-secondary mb-1 block">
-                                Date/Time
-                              </label>
-                              <p className="text-xs text-content-secondary">
-                                {format(new Date(candidate.datetime), 'MMM d, HH:mm')}
-                              </p>
-                            </div>
-                            {candidate.similarity_score !== undefined && (
-                              <div>
-                                <label className="text-xs font-medium text-content-secondary mb-1 block">
-                                  Similarity
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
-                                    <div 
-                                      className="h-full bg-accent-amber transition-all"
-                                      style={{ width: `${candidate.similarity_score}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-xs text-content-secondary tabular-nums">
-                                    {candidate.similarity_score}%
+                              </td>
+                              <td className="px-3 py-2 text-content-primary">
+                                <span className="font-semibold tabular-nums">
+                                  {Number(candidate.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </span>{' '}
+                                <span className="text-content-muted">
+                                  {candidate.currency}
+                                </span>
+                                {Math.abs(Number(candidate.amount) - Number(selectedBreak.amount_local)) > 0.01 && (
+                                  <span className="ml-2 text-[11px] text-accent-amber">
+                                    Δ {(Number(candidate.amount) - Number(selectedBreak.amount_local)).toFixed(2)}
                                   </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-content-secondary">
+                                {format(new Date(candidate.datetime), 'MMM d, HH:mm')}
+                              </td>
+                              <td className="px-3 py-2 text-content-secondary">
+                                {candidate.similarity_score !== undefined ? (
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-accent-amber"
+                                        style={{ width: `${candidate.similarity_score}%` }}
+                                      />
+                                    </div>
+                                    <span className="tabular-nums">
+                                      {candidate.similarity_score}%
+                                    </span>
+                                  </div>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {candidate.transaction_uuid && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-status-success/10 text-status-success border border-status-success/20 hover:bg-status-success/20 text-[11px] font-medium transition-colors disabled:opacity-50"
+                                        onClick={() => {
+                                          if (candidate.transaction_uuid) {
+                                            resolveMutation.mutate({
+                                              uuid: selectedBreak.transaction_uuid,
+                                              resolution: 'MANUAL_MATCH',
+                                              candidateUuid: candidate.transaction_uuid,
+                                            })
+                                          }
+                                        }}
+                                        disabled={resolveMutation.isPending}
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        Match
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-[11px] text-content-secondary border border-white/[0.12]"
+                                        onClick={() => openRawModalForTransaction(candidate.transaction_uuid!)}
+                                      >
+                                        View raw
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                     <p className="text-xs text-content-muted mt-3 italic">
                       These transactions were found during matching but did not meet all criteria to be considered a match.
@@ -976,6 +1022,15 @@ export default function BreaksPage() {
                               <p className="text-xs text-content-secondary">
                                 {format(new Date(peer.transaction_datetime_utc), 'MMM d, HH:mm')}
                               </p>
+                            </div>
+                            <div className="md:col-span-4 flex justify-end">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-[11px] text-content-secondary border border-white/[0.12]"
+                                onClick={() => openRawModalForTransaction(peer.transaction_uuid)}
+                              >
+                                View raw transaction
+                              </button>
                             </div>
                           </div>
                         </div>

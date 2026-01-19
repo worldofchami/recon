@@ -7,7 +7,7 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 import httpx
 from urllib.parse import urlparse
-from shared.database import get_db
+from shared.database import get_db, SessionLocal
 from shared.models import Transaction
 from shared.supabase_db_client import get_mapping_config, log_audit_trail, get_all_sources
 from shared.redis_client import get_cache, set_cache
@@ -15,9 +15,17 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Reconciliation BFF Service", version="1.0.0")
 
+import os
+
+# Get allowed origins from environment variable, default to localhost for dev
+allowed_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -351,10 +359,13 @@ async def get_raw_transaction(
 async def resolve_break(
     transaction_uuid: str,
     action: str,
+    candidate_uuid: Optional[str] = Query(default=None),
     user: str = Query(default="system"),
     db: Session = Depends(get_db)
 ):
     """Resolve a break (manual match, write-off, etc.)."""
+    import uuid
+    
     transaction = db.query(Transaction).filter(
         Transaction.transaction_uuid == transaction_uuid
     ).first()
@@ -363,18 +374,76 @@ async def resolve_break(
         raise HTTPException(status_code=404, detail="Transaction not found")
     
     if action == "MANUAL_MATCH":
-        # Logic for manual matching would go here
-        transaction.match_status = "MANUAL_ADJ"
+        if candidate_uuid:
+            # Match with a specific candidate transaction
+            candidate = db.query(Transaction).filter(
+                Transaction.transaction_uuid == candidate_uuid
+            ).first()
+            
+            if not candidate:
+                raise HTTPException(status_code=404, detail="Candidate transaction not found")
+            
+            # Generate a match_id and link both transactions
+            match_uuid = uuid.uuid4()
+            transaction.match_id = match_uuid
+            candidate.match_id = match_uuid
+            transaction.match_status = "MANUAL_ADJ"
+            candidate.match_status = "MANUAL_ADJ"
+            
+            log_audit_trail("BREAK_RESOLVED", user, {
+                "transaction_uuid": transaction_uuid,
+                "candidate_uuid": candidate_uuid,
+                "action": action,
+                "match_id": str(match_uuid)
+            })
+        else:
+            # Simple manual match without a candidate
+            transaction.match_status = "MANUAL_ADJ"
+            log_audit_trail("BREAK_RESOLVED", user, {
+                "transaction_uuid": transaction_uuid,
+                "action": action
+            })
     elif action == "WRITE_OFF":
         transaction.match_status = "WRITE_OFF"
+        log_audit_trail("BREAK_RESOLVED", user, {
+            "transaction_uuid": transaction_uuid,
+            "action": action
+        })
     
     db.commit()
-    log_audit_trail("BREAK_RESOLVED", user, {
-        "transaction_uuid": transaction_uuid,
-        "action": action
-    })
     
     return {"status": "resolved", "transaction_uuid": transaction_uuid}
+
+
+@app.get("/rules")
+async def get_matching_rules():
+    """Get all matching rules."""
+    from shared.supabase_db_client import get_matching_rules
+    
+    rules = get_matching_rules()
+    return {"rules": rules}
+
+
+@app.get("/rules/{rule_id}")
+async def get_matching_rule(rule_id: str):
+    """Get a specific matching rule."""
+    from shared.supabase_db_client import get_matching_rules
+    import uuid
+    
+    try:
+        rule_uuid = uuid.UUID(rule_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid rule ID format")
+    
+    db = SessionLocal()
+    try:
+        from shared.models import MatchingRule
+        rule = db.query(MatchingRule).filter(MatchingRule.rule_id == rule_uuid).first()
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return rule.to_dict()
+    finally:
+        db.close()
 
 
 @app.post("/rules")
@@ -402,6 +471,80 @@ async def create_matching_rule(
     return {"status": "created", "rule_id": rule_id}
 
 
+@app.put("/rules/{rule_id}")
+async def update_matching_rule(
+    rule_id: str,
+    rule: dict,
+    user: str = Query(default="system")
+):
+    """Update an existing matching rule."""
+    from shared.supabase_db_client import save_matching_rule
+    import uuid
+    
+    try:
+        rule_uuid = uuid.UUID(rule_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid rule ID format")
+    
+    # Verify rule exists
+    db = SessionLocal()
+    try:
+        from shared.models import MatchingRule
+        existing = db.query(MatchingRule).filter(MatchingRule.rule_id == rule_uuid).first()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Rule not found")
+    finally:
+        db.close()
+    
+    # Update the rule
+    rule["rule_id"] = rule_id
+    save_matching_rule(rule_id, rule)
+    
+    # Log the action
+    log_audit_trail("RULE_UPDATED", user, {
+        "rule_id": rule_id,
+        "rule_name": rule.get("name"),
+        "rule_type": rule.get("type")
+    })
+    
+    return {"status": "updated", "rule_id": rule_id}
+
+
+@app.delete("/rules/{rule_id}")
+async def delete_matching_rule(
+    rule_id: str,
+    user: str = Query(default="system")
+):
+    """Delete a matching rule."""
+    import uuid
+    
+    try:
+        rule_uuid = uuid.UUID(rule_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid rule ID format")
+    
+    db = SessionLocal()
+    try:
+        from shared.models import MatchingRule
+        rule = db.query(MatchingRule).filter(MatchingRule.rule_id == rule_uuid).first()
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        
+        # Soft delete by setting is_active to false
+        rule.is_active = "false"
+        db.commit()
+        
+        # Log the action
+        log_audit_trail("RULE_DELETED", user, {
+            "rule_id": rule_id,
+            "rule_name": rule.name
+        })
+        
+        return {"status": "deleted", "rule_id": rule_id}
+    finally:
+        db.close()
+
+
 @app.post("/direla/create-id")
 async def create_direla_id(
     transaction_data: dict,
@@ -409,7 +552,21 @@ async def create_direla_id(
 ):
     """Create a universal Direla ID for multi-party transaction."""
     from shared.direla_matching import DirelaMatchingEngine
-    
+    from shared.supabase_db_client import get_mapping_config
+
+    source_system = transaction_data.get("source_system")
+
+    # Look up any configured Direla ID prefix for this source (config page).
+    direla_prefix: str = ""
+    if source_system:
+        config = get_mapping_config(source_system)
+        if config:
+            metadata = config.get("metadata") or {}
+            # Allow either metadata.direla_prefix or top-level direla_prefix.
+            configured_prefix = metadata.get("direla_prefix") or config.get("direla_prefix")
+            if isinstance(configured_prefix, str):
+                direla_prefix = configured_prefix.strip()
+
     engine = DirelaMatchingEngine()
     requested_id = transaction_data.get("direla_id")
     if requested_id:
@@ -418,7 +575,11 @@ async def create_direla_id(
     else:
         # Otherwise, let the engine generate one
         direla_id = engine.generate_direla_id(transaction_data)
-    
+
+    # Apply per-source prefix if configured and not already present.
+    if direla_prefix and not str(direla_id).startswith(direla_prefix):
+        direla_id = f"{direla_prefix}{direla_id}"
+
     log_audit_trail("DIRELA_ID_CREATED", user, {
         "direla_id": direla_id,
         "source_system": transaction_data.get("source_system"),

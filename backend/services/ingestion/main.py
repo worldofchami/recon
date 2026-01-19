@@ -124,6 +124,12 @@ class NormalizerCore:
         field_mapping = mapping_config.get("field_mapping", {}) or {}
         # Some configs may persist `transformations` as null; normalize that to {}.
         transformations = mapping_config.get("transformations") or {}
+        metadata = mapping_config.get("metadata") or {}
+
+        # Optional per-source Direla prefix (configured via the config page).
+        # Stored either under metadata.direla_prefix (recommended) or as a top-level key.
+        direla_prefix = metadata.get("direla_prefix") or mapping_config.get("direla_prefix") or ""
+        direla_prefix = direla_prefix.strip() if isinstance(direla_prefix, str) else ""
         
         # Helper function to get field value (supports nested paths)
         def get_field_value(field_path: str, default: str = None) -> Any:
@@ -140,12 +146,19 @@ class NormalizerCore:
         transaction_datetime_path = field_mapping.get("transaction_datetime", "bookingDate")
         amount_path = field_mapping.get("amount", "amount.value")
         currency_path = field_mapping.get("currency", "amount.currency")
+        direla_id_path = field_mapping.get("direla_id")  # optional
         
         # Extract values
         source_ref_id = get_field_value(source_ref_id_path, "entryId") or get_field_value("entryId")
         transaction_datetime_str = get_field_value(transaction_datetime_path, "bookingDate") or get_field_value("bookingDate")
         amount_value = get_field_value(amount_path, "amount.value")
         currency_value = get_field_value(currency_path, "amount.currency")
+        direla_id_value = get_field_value(direla_id_path) if direla_id_path else None
+
+        if isinstance(direla_id_value, str):
+            direla_id_value = direla_id_value.strip()
+        if direla_id_value and direla_prefix and not str(direla_id_value).startswith(direla_prefix):
+            direla_id_value = f"{direla_prefix}{direla_id_value}"
         
         # Handle date format and timezone normalization.
         # - Plain dates (YYYY-MM-DD) are treated as midnight.
@@ -165,6 +178,7 @@ class NormalizerCore:
                 normalized_dt = None
         
         normalized = {
+            "direla_id": direla_id_value or None,
             "source_system": source_system,
             "source_ref_id": str(source_ref_id) if source_ref_id else None,
             "transaction_datetime_utc": normalized_dt,
@@ -174,7 +188,6 @@ class NormalizerCore:
 
         # Derive commission and merchant payout from fees config, if present.
         # Fees are expected under metadata.fees; fall back to top-level 'fees' if present.
-        metadata = mapping_config.get("metadata") or {}
         fees_config = metadata.get("fees") or mapping_config.get("fees") or {}
         if normalized.get("amount_local") is not None and fees_config:
             basis_field = fees_config.get("basis_field", "amount_local")
@@ -261,6 +274,7 @@ async def ingest_transaction(
         # 4. Create transaction record
         transaction = Transaction(
             transaction_uuid=uuid.uuid4(),
+            direla_id=normalized.get("direla_id"),
             source_system=normalized["source_system"],
             source_ref_id=normalized["source_ref_id"],
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
@@ -353,6 +367,7 @@ async def ingest_iso20022(
         # 4. Create transaction record
         transaction = Transaction(
             transaction_uuid=uuid.uuid4(),
+            direla_id=normalized.get("direla_id"),
             source_system=normalized["source_system"],
             source_ref_id=normalized["source_ref_id"],
             transaction_datetime_utc=normalized["transaction_datetime_utc"],
