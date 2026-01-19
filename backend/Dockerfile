@@ -11,9 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# These are the ports used by the various service commands in docker-compose.
-EXPOSE 8000 8001 8002 8003
+# Default deployment port expected by most platforms (Cloud Run, etc.)
+# docker-compose overrides the command/ports per service for local dev.
+EXPOSE 8080
 
 # Default command (docker-compose overrides this per-service).
-CMD ["uvicorn", "services.bff.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn services.bff.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
 
