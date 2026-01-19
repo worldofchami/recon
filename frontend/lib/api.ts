@@ -1,8 +1,6 @@
 import axios from 'axios'
-import dotenv from 'dotenv'
-dotenv.config()
 
-const API_URL = process.env.NODE_ENV === "production" ? "https://recon-638214892937.europe-west3.run.app" : 'http://localhost:8000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "production" ? "https://recon-638214892937.europe-west3.run.app" : 'http://localhost:8000')
 const INGEST_URL = process.env.NEXT_PUBLIC_INGEST_URL || 'http://localhost:8001'
 
 const api = axios.create({
