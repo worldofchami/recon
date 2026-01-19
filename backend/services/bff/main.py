@@ -20,7 +20,8 @@ import os
 # Get allowed origins from environment variable, default to localhost for dev
 allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:3000"
+    "*"
+    # "http://localhost:3000"
 ).split(",")
 
 app.add_middleware(
